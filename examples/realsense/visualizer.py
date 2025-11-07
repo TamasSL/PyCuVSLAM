@@ -8,88 +8,65 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 #
-from typing import List, Optional
+from typing import List, Dict, Deque
+from collections import deque
 
 import numpy as np
+import numpy.typing as npt
 import rerun as rr
 import rerun.blueprint as rrb
-
+import torch
 import cuvslam as vslam
 
-# Constants
-DEFAULT_NUM_VIZ_CAMERAS = 1
-POINT_RADIUS = 5.0
-ARROW_SCALE = 0.1
-GRAVITY_ARROW_SCALE = 0.02
+from nvblox_torch.examples.realsense.vslam_utils import from_homogeneous
+from nvblox_torch.mesh import Mesh
+
+# NOTE(alexmillane, 2025.05.22): This is a modified version of the RerunVisualizer class
+# from the cuvslam examples. Right now the visualizer does not ship with the PyCuVSLAM
+# package, so we need to copy it here. If they move it into their package we can import
+# it from there and subclass it.
+
+# pylint: disable=invalid-name
 
 
 class RerunVisualizer:
-    """Rerun-based visualizer for cuVSLAM tracking results."""
-    
-    def __init__(self, num_viz_cameras: int = DEFAULT_NUM_VIZ_CAMERAS) -> None:
-        """Initialize rerun visualizer.
-        
-        Args:
-            num_viz_cameras: Number of cameras to visualize
-        """
-        self.num_viz_cameras = num_viz_cameras
-        rr.init("cuVSLAM Visualizer", spawn=True)
-        rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Y_DOWN, static=True)
-        
-        # Set up the visualization layout
-        self._setup_blueprint()
-        self.track_colors = {}
+    """Visualizer for cuvslam and nvblox for the nvblox_torch realsense example."""
 
-    def _setup_blueprint(self) -> None:
-        """Set up the Rerun blueprint for visualization layout."""
-        rr.send_blueprint(
-            rrb.Blueprint(
-                rrb.TimePanel(state="collapsed"),
-                rrb.Horizontal(
-                    column_shares=[0.5, 0.5],
-                    contents=[
-                        rrb.Vertical(contents=[
-                            rrb.Spatial2DView(origin=f'world/camera_{i}')
-                            for i in range(self.num_viz_cameras)
-                        ]),
-                        rrb.Spatial3DView(origin='world')
-                    ]
-                )
-            ),
-            make_active=True
-        )
+    def __init__(self) -> None:
+        """Initialize rerun visualizer."""
+        self._start_rerun_visualizer()
+        # Parameters
+        self.camera_pose_axis_scale = 0.1
+        self.trajectory_length = 100
+        # State
+        self.track_colors: Dict[int, npt.NDArray] = {}
+        self.t_W_C_history: Deque[npt.NDArray] = deque(maxlen=self.trajectory_length)
 
-    def _log_rig_pose(
-        self, rotation_quat: np.ndarray, translation: np.ndarray
-    ) -> None:
-        """Log rig pose to Rerun.
-        
-        Args:
-            rotation_quat: Rotation quaternion
-            translation: Translation vector
-        """
+    def _start_rerun_visualizer(self) -> None:
+        rr.init('cuVSLAM Visualizer', spawn=True)
+        rr.log('world', rr.ViewCoordinates.RIGHT_HAND_Y_DOWN, static=True)
+        rr.send_blueprint(rrb.Blueprint(
+            rrb.TimePanel(state='collapsed'),
+            rrb.Horizontal(column_shares=[0.5, 0.5],
+                           contents=[
+                               rrb.Spatial2DView(origin='world/camera_0'),
+                               rrb.Spatial3DView(origin='world'),
+                           ])),
+                          make_active=True)
+
+    def _log_rig_pose(self, q_W_C: npt.NDArray, t_W_C: npt.NDArray) -> None:
+        """Log rig pose to Rerun."""
         rr.log(
-            "world/camera_0",
-            rr.Transform3D(translation=translation, quaternion=rotation_quat),
+            'world/camera_0',
+            rr.Transform3D(translation=t_W_C, quaternion=q_W_C),
             rr.Arrows3D(
-                vectors=np.eye(3) * ARROW_SCALE,
-                colors=[[255, 0, 0], [0, 255, 0], [0, 0, 255]]  # RGB for XYZ
-            )
-        )
+                vectors=np.eye(3) * self.camera_pose_axis_scale,
+                colors=[[255, 0, 0], [0, 255, 0], [0, 0, 255]]    # RGB for XYZ axes
+            ))
 
-    def _log_observations(
-        self,
-        observations_main_cam: List[vslam.Observation],
-        image: np.ndarray,
-        camera_name: str
-    ) -> None:
-        """Log 2D observations for a specific camera with consistent colors.
-        
-        Args:
-            observations_main_cam: List of observations
-            image: Camera image
-            camera_name: Name of the camera for logging
-        """
+    def _log_observations(self, observations_main_cam: List[vslam.Observation],
+                          image: npt.NDArray) -> None:
+        """Log 2D observations for a specific camera with consistent colors per track."""
         if not observations_main_cam:
             return
 
@@ -99,70 +76,84 @@ class RerunVisualizer:
                 self.track_colors[obs.id] = np.random.randint(0, 256, size=3)
 
         points = np.array([[obs.u, obs.v] for obs in observations_main_cam])
-        colors = np.array([
-            self.track_colors[obs.id] for obs in observations_main_cam
-        ])
+        colors = np.array([self.track_colors[obs.id] for obs in observations_main_cam])
 
-        # Handle different image datatypes for compression
-        if image.dtype == np.uint8:
-            image_log = rr.Image(image).compress()
-        else:
-            # For other datatypes, don't compress to avoid issues
-            image_log = rr.Image(image)
+        rr.log('world/camera_0/observations', rr.Points2D(positions=points,
+                                                          colors=colors,
+                                                          radii=5.0),
+               rr.Image(image).compress())
 
-        rr.log(
-            f"world/{camera_name}/observations",
-            rr.Points2D(positions=points, colors=colors, radii=POINT_RADIUS),
-            image_log
-        )
+    def _log_trajectory(self) -> None:
+        """Log the trajectory to Rerun."""
+        rr.log('world/trajectory', rr.LineStrips3D(self.t_W_C_history), static=True)
 
-    def _log_gravity(self, gravity: np.ndarray) -> None:
-        """Log gravity vector to Rerun.
+    def _visualize_map(self, map_uv):
+        rr.log('world/camera_0/observations', rr.Points2D(
+            map_uv, radii=0.5, colors=[255, 255, 255]
+        ))
+
+    def _visualize_drone(self, drone_uv, yaw_rad):
+        """
+        Visualize drone position and orientation
         
         Args:
-            gravity: Gravity vector
+            drone_uv: (u, v) position in pixels
+            yaw_rad: yaw angle in radians
         """
+        # Draw the drone position as a point
+        #rr.log('world/camera_0/drone', rr.Points2D(
+        #    drone_uv, radii=0.5, colors=[128, 55, 60]
+        #))
+        
+        # Draw arrow showing orientation
+        arrow_length = 3  # pixels
+        
+        # Calculate arrow direction from yaw
+        yaw_rad += np.pi / 2.0
+        dx = arrow_length * np.cos(yaw_rad)
+        dy = arrow_length * np.sin(yaw_rad)
+        
+        # Arrow origin and vector
+        rr.log('world/camera_0/drone_orientation', rr.Arrows2D(
+            origins=drone_uv,
+            vectors=[[dx, dy]],
+            colors=[255, 0, 0],  # Red arrow
+            radii=0.3
+        ))
+
+    def _visualize_nvblox_mesh(self, mesh: Mesh) -> None:
         rr.log(
-            "world/camera_0/gravity",
-            rr.Arrows3D(
-                vectors=gravity,
-                colors=[[255, 0, 0]],
-                radii=GRAVITY_ARROW_SCALE
-            )
-        )
+            'world/mesh',
+            rr.Mesh3D(
+                vertex_positions=mesh.vertices().cpu().numpy(),
+                vertex_colors=mesh.vertex_colors().cpu().numpy(),
+                triangle_indices=mesh.triangles().cpu().numpy(),
+            ))
 
-    def visualize_frame(
-        self,
-        frame_id: int,
-        images: List[np.ndarray],
-        pose: vslam.Pose,
-        observations_main_cam: List[List[vslam.Observation]],
-        trajectory: List[np.ndarray],
-        timestamp: int,
-        gravity: Optional[np.ndarray] = None
-    ) -> None:
-        """Visualize current frame state using Rerun.
-        
+    def visualize_cuvslam(self, T_W_C: torch.Tensor, image: npt.NDArray,
+                          observations: List[vslam.Observation]) -> None:
+        """Visualize the cuvslam outputs.
+
+        We visualize:
+        1) The camera pose,
+        2) The image used for tracking and the features
+        3) The past N camera positions as a trajectory.
+
         Args:
-            frame_id: Current frame ID
-            images: List of camera images
-            pose: Current pose estimate
-            observations_main_cam: List of observations for each camera
-            trajectory: List of trajectory points
-            timestamp: Current timestamp
-            gravity: Optional gravity vector
+            T_W_C: The camera pose in the world frame.
+            image: The image used for tracking and the features.
+            observations: The observations used for tracking.
         """
-        rr.set_time_sequence("frame", frame_id)
-        rr.log("world/trajectory", rr.LineStrips3D(trajectory), static=True)
+        t_W_C, q_W_C = from_homogeneous(T_W_C)
+        #self.t_W_C_history.append(t_W_C)
+        self._log_rig_pose(q_W_C, t_W_C)
+        #self._log_observations(observations, image)
+        #self._log_trajectory()
 
-        self._log_rig_pose(pose.rotation, pose.translation)
-        
-        for i in range(self.num_viz_cameras):
-            self._log_observations(
-                observations_main_cam[i], images[i], f"camera_{i}"
-            )
-            
-        if gravity is not None:
-            self._log_gravity(gravity)
-            
-        rr.log("world/timestamp", rr.TextLog(str(timestamp)))
+    def visualize_nvblox(self, mesh: Mesh) -> None:
+        """Visualize the nvblox mesh.
+
+        Args:
+            mesh: The nvblox mesh to visualize.
+        """
+        self._visualize_nvblox_mesh(mesh)

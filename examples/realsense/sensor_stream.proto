@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package sensor_stream;
+
+// Pose information
+message Pose {
+    double x = 1;
+    double y = 2;
+    double z = 3;
+    double qw = 4;  // quaternion w
+    double qx = 5;  // quaternion x
+    double qy = 6;  // quaternion y
+    double qz = 7;  // quaternion z
+    uint64 timestamp_us = 8;
+}
+
+// Image frame
+message ImageFrame {
+    bytes data = 1;  // Compressed JPEG or raw bytes
+    uint32 width = 2;
+    uint32 height = 3;
+    string encoding = 4;  // "rgb8", "bgr8", "jpeg", etc.
+    uint64 timestamp_us = 5;
+}
+
+// Depth frame
+message DepthFrame {
+    bytes data = 1;  // Raw depth data or compressed
+    uint32 width = 2;
+    uint32 height = 3;
+    string encoding = 4;  // "16UC1", "32FC1", etc.
+    float depth_scale = 5;  // meters per unit
+    uint64 timestamp_us = 6;
+}
+
+// Combined sensor data
+message SensorData {
+    Pose pose = 1;
+    ImageFrame color_image = 2;
+    DepthFrame depth_image = 3;
+    uint64 frame_id = 4;
+}
+
+// Response from server
+message StreamResponse {
+    bool success = 1;
+    string message = 2;
+    uint64 frames_received = 3;
+}
+
+// Service definition
+service SensorStreamService {
+    // Bidirectional streaming
+    rpc StreamSensorData(stream SensorData) returns (stream StreamResponse);
+    
+    // Unary call for single frame
+    rpc SendFrame(SensorData) returns (StreamResponse);
+}
