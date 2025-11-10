@@ -28,6 +28,31 @@ from nvblox_torch.timer import Timer, timer_status_string
 
 PRINT_TIMING_EVERY_N_SECONDS = 1.0
 
+def quaternion_to_euler(qx, qy, qz, qw):
+        """
+        Extract yaw (rotation about vertical/y-axis) from quaternion.
+        For camera frame where y is up.
+        """
+        import numpy as np
+
+        bqw = qw
+        bqx = qz
+        bqy = qx
+        bqz = -qy
+        
+        # Yaw is rotation about the y-axis (vertical in camera frame)
+        # Standard yaw extraction from quaternion:
+        siny_cosp = 2 * (bqw * bqz + bqx * bqy)
+        cosy_cosp = 1 - 2 * (bqy * bqy + bqz * bqz)
+        yaw = -np.arctan2(siny_cosp, cosy_cosp)
+
+        roll = np.arctan2(2 * (bqw * bqx + bqy * bqz), 1 - 2 * (bqx**2 + bqy**2))
+
+        sinp = 2 * (bqw * bqy - bqz * bqx)
+        pitch = float(np.where(np.abs(sinp) >= 1, np.copysign(np.pi / 2, sinp), np.arcsin(sinp)))
+        
+        return yaw, roll, pitch
+
 
 class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
     def __init__(self):
@@ -145,11 +170,19 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
                     sensor_data.depth_image.encoding,
                     sensor_data.depth_image.width,
                     sensor_data.depth_image.height
-                )
-                
+                )                
                 # Convert depth to meters if needed
                 # if sensor_data.depth_image.encoding == "16UC1":
                 # depth_image = depth_image.astype(np.float32) * sensor_data.depth_image.depth_scale
+
+                points_array = []
+                if sensor_data.points_data and sensor_data.num_points > 0:
+                    points_array = np.frombuffer(
+                        sensor_data.points_data, 
+                        dtype=np.int16
+                    ).reshape(sensor_data.num_points, 2)
+                    
+                    print(f"Points shape: {points_array.shape}")
                 
                 # Process with nvblox
                 self.process_frame(
@@ -157,6 +190,7 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
                     depth_image,
                     position,
                     orientation,
+                    points_array,
                     sensor_data.color_image.timestamp_us
                 )
                 
@@ -186,6 +220,7 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
         depth_image: np.ndarray,
         position: np.ndarray,
         orientation: np.ndarray,
+        points_array,
         timestamp_us: int
     ):
         """Process frame with nvblox"""
@@ -227,6 +262,15 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             #                                 data['left_infrared_image'],
             #                                 data['last_observation'])
 
+            if T_W_C_left_infrared is not None:
+                self.visualizer.visualize_cuvslam(T_W_C_left_infrared.cpu().numpy(), None, None)
+
+            self.visualizer._visualize_map(points_array)
+
+            drone_pos = [[-data['position'][0] * 10 + 40, data['position'][2] * 10 + 40]] # shifted by map-size for centering (400)
+            yaw, roll, pitch = quaternion_to_euler(data['quaternion'][0], data['quaternion'][1], data['quaternion'][2], data['quaternion'][3])
+            self.visualizer._visualize_drone(drone_pos, yaw)
+            
             # Visualize mesh. This is performed at an (optionally) reduced rate.
             current_time = time.time()
             if (current_time - self.last_visualize_mesh_time) >= (1.0 / self.visualize_mesh_hz):

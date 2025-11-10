@@ -39,6 +39,10 @@ message SensorData {
     ImageFrame color_image = 2;
     DepthFrame depth_image = 3;
     uint64 frame_id = 4;
+
+    // Raw bytes containing point coordinates
+    bytes points_data = 5;
+    uint32 num_points = 6;  // Number of points
 }
 
 // Response from server

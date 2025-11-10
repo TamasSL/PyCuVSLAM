@@ -135,6 +135,14 @@ class StreamerSubscriber:
             depth_image=depth_msg,
             frame_id=self.frame_id
         )
+
+        # Convert points to numpy array and serialize
+        if 'points' in data and len(data['points']) > 0:
+            points_array = np.array(data['points'], dtype=np.int16)  # Shape: (N, 2)
+        
+            sensor_data.points_data = points_array.tobytes()
+            sensor_data.num_points = len(points_array)
+
         self.frame_id += 1
         
         return sensor_data
