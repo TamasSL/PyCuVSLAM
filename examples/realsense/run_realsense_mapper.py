@@ -25,6 +25,7 @@ from camera_utils import get_rs_stereo_rig
 from streamer_subscriber import StreamerSubscriber
 from visualizer_subscriber import VisualizerSubscriber
 from publish_subscribe import Publisher
+from offboard_controller_subscriber import OffboardControllerSubscriber
 
 # pylint: disable=invalid-name
 
@@ -220,6 +221,9 @@ async def main() -> int:
     publisher = Publisher(maxsize=5)
     streamer_subscriber = VisualizerSubscriber(publisher, "VisualizerSubscriber")
     streamer_subscriber.start()
+
+    offboard_controller = OffboardControllerSubscriber(drone)
+    offboard_controller.start()
 
     map_builder = MapBuilder()
 
