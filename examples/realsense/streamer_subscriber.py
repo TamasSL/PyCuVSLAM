@@ -16,9 +16,11 @@ import queue
 import pyrealsense2 as rs
 from publish_subscribe import Publisher
 
+SERVER_ADDRESS = "192.168.0.103:50051"
+
 
 class StreamerSubscriber:
-    def __init__(self, slam_publisher: Publisher, command_publisher: Publisher, name: str = "Subscriber", server_address: str = "localhost:50051", compress_images: bool = False):
+    def __init__(self, slam_publisher: Publisher, command_publisher: Publisher, name: str = "Subscriber", server_address: str = SERVER_ADDRESS, compress_images: bool = False):
         self.name = name
         self.queue = slam_publisher.subscribe()
         self._command_publisher = command_publisher
