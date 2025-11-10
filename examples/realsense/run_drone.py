@@ -12,7 +12,7 @@ from map_builder import MapBuilder
 
 from camera_utils import get_rs_stereo_rig
 from streamer_subscriber import StreamerSubscriber
-from visualizer_subscriber import VisualizerSubscriber
+# from visualizer_subscriber import VisualizerSubscriber
 from publish_subscribe import Publisher
 from offboard_controller_subscriber import OffboardControllerSubscriber
 
@@ -21,6 +21,9 @@ from offboard_controller_subscriber import OffboardControllerSubscriber
 RESOLUTION = (640, 480)
 FPS = 30
 WARMUP_FRAMES = 60
+
+DRONE_ADDRESS = "serial:///dev/ttyTHS1:921600"  # JETSON
+# DRONE_ADDRESS = "serial:///dev/ttyACM0:57600"   # USB
 
 def reset_realsense_device():
     """Reset all RealSense devices"""
@@ -189,13 +192,13 @@ async def main() -> int:
 
 
     drone = System()
-    await drone.connect(system_address="serial:///dev/ttyACM0:57600")
+    await drone.connect(system_address=DRONE_ADDRESS)
 
     print("Waiting for drone to connect...")
-    #async for state in drone.core.connection_state():
-    #    if state.is_connected:
-    #        print("✅ Drone connected!")
-    #        break
+    async for state in drone.core.connection_state():
+        if state.is_connected:
+            print("✅ Drone connected!")
+            break
 
     event_loop = asyncio.get_running_loop()
     command_publisher = Publisher(maxsize=3)
@@ -272,8 +275,8 @@ async def main() -> int:
                             if map_below[i][j] == 1: 
                                 points.append([i, j, -1])  # obstacle at level below
 
-                    # await send_vision_position(drone, x_ned, y_ned, z_ned, orientation, yaw, roll, pitch)
-                    # await print_ned_coordinates(drone)
+                    await send_vision_position(drone, x_ned, y_ned, z_ned, orientation, yaw, roll, pitch)
+                    await print_ned_coordinates(drone)
 
                     publish_data = dict(
                         depth = images[1] * np.float32(depth_scale),
