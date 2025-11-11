@@ -232,6 +232,7 @@ async def main() -> int:
                 timestamp_diff = timestamp - prev_timestamp
                 print(f"({timestamp_diff/1e6:.2f} ms) ")
 
+            prev_timestamp = timestamp
             frame_id += 1
 
             # Warmup for specified number of frames
@@ -276,7 +277,7 @@ async def main() -> int:
                                 points.append([i, j, -1])  # obstacle at level below
 
                     await send_vision_position(drone, x_ned, y_ned, z_ned, orientation, yaw, roll, pitch)
-                    await print_ned_coordinates(drone)
+                    # await print_ned_coordinates(drone)
 
                     publish_data = dict(
                         depth = images[1] * np.float32(depth_scale),
