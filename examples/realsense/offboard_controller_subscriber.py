@@ -48,7 +48,7 @@ class OffboardControllerSubscriber:
     async def _process_loop(self):
         """Main processing loop"""
 
-        input("\nPress Enter when ready for takeoff...")
+        await asyncio.to_thread(input, "\nPress Enter when ready for takeoff...")
 
         print("Arming...")
         await self.drone.action.arm()
@@ -63,7 +63,7 @@ class OffboardControllerSubscriber:
         await self.drone.action.hold()
         await asyncio.sleep(2)
 
-        input("\nPress Enter when ready to start offboard mode...")
+        await asyncio.to_thread(input, "\nPress Enter when ready to start offboard mode...")
 
         # Must send setpoint before starting
         await self.drone.offboard.set_velocity_ned(self.current_velocity)
