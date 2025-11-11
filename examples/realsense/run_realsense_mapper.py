@@ -222,7 +222,8 @@ async def main() -> int:
     streamer_subscriber = VisualizerSubscriber(publisher, "VisualizerSubscriber")
     streamer_subscriber.start()
 
-    offboard_controller = OffboardControllerSubscriber(drone)
+    event_loop = asyncio.get_running_loop()
+    offboard_controller = OffboardControllerSubscriber(drone, event_loop)
     offboard_controller.start()
 
     map_builder = MapBuilder()

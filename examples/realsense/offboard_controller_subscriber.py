@@ -19,8 +19,9 @@ from publish_subscribe import Publisher
 
 
 class OffboardControllerSubscriber:
-    def __init__(self, drone):
+    def __init__(self, drone, event_loop):
         self.drone = drone
+        self.event_loop = event_loop
         self._running = False
         self._thread = None
 
@@ -37,14 +38,12 @@ class OffboardControllerSubscriber:
 
     def _run_async_loop(self):
         """Synchronous wrapper that runs async code"""
-        # Create new event loop for this thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        try:
-            loop.run_until_complete(self._process_loop())
-        finally:
-            loop.close()
+        future = asyncio.run_coroutine_threadsafe(
+            self._process_loop(),
+            self.event_loop
+        )
+        future.result()  # Wait for completion
+
     
     async def _process_loop(self):
         """Main processing loop"""
