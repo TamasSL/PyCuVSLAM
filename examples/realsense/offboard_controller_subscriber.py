@@ -49,6 +49,21 @@ class OffboardControllerSubscriber:
     async def _process_loop(self):
         """Main processing loop"""
 
+        input("\nPress Enter when ready for takeoff...")
+
+        print("Arming...")
+        await self.drone.action.arm()
+        
+        print("Taking off...")
+        await self.drone.action.set_takeoff_altitude(0.3)
+        await self.drone.action.takeoff()
+        await asyncio.sleep(5)  # Wait for takeoff
+
+        # 2. HOLD POSITION (explicit position hold mode)
+        print("Holding position...")
+        await self.drone.action.hold()
+        await asyncio.sleep(2)
+
         input("\nPress Enter when ready to start offboard mode...")
 
         # Must send setpoint before starting
@@ -84,6 +99,9 @@ class OffboardControllerSubscriber:
         
         await self.drone.offboard.stop()
         print("✅ Offboard mode stopped")
+
+        print("Landing...")
+        await self.drone.action.land()
 
     
     async def _heartbeat_loop(self):
