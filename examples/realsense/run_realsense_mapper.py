@@ -218,13 +218,14 @@ async def main() -> int:
     #        print("✅ Drone connected!")
     #        break
 
-    publisher = Publisher(maxsize=5)
-    streamer_subscriber = VisualizerSubscriber(publisher, "VisualizerSubscriber")
-    streamer_subscriber.start()
-
     event_loop = asyncio.get_running_loop()
-    offboard_controller = OffboardControllerSubscriber(drone, event_loop)
+    command_publisher = Publisher(maxsize=3)
+    offboard_controller = OffboardControllerSubscriber(command_publisher, drone, event_loop)
     offboard_controller.start()
+
+    slam_publisher = Publisher(maxsize=5)
+    streamer_subscriber = StreamerSubscriber(slam_publisher, command_publisher, "StreamerSubscriber")
+    streamer_subscriber.start()
 
     map_builder = MapBuilder()
 
@@ -298,8 +299,10 @@ async def main() -> int:
                         quaternion=odom_pose_estimate.world_from_rig.pose.rotation,
                         points=points
                     )
-                    publisher.publish(publish_data)
+                    slam_publisher.publish(publish_data)
                     # streamer_subscriber.stream_callback(publish_data)
+
+                    await asyncio.sleep(0)
     finally:
         pipeline.stop()
     print('Done')

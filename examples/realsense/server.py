@@ -20,7 +20,7 @@ import sensor_stream_pb2_grpc
 from nvblox_torch.examples.realsense.realsense_utils import rs_intrinsics_to_matrix, rs_extrinsics_to_homogeneous
 from nvblox_torch.examples.realsense.realsense_dataloader import RealsenseDataloader
 from nvblox_torch.examples.realsense.vslam_utils import get_vslam_stereo_rig, to_homogeneous
-from nvblox_torch.examples.realsense.visualizer import RerunVisualizer
+from visualizer import RerunVisualizer
 from nvblox_torch.projective_integrator_types import ProjectiveIntegratorType
 from nvblox_torch.mapper import Mapper
 from nvblox_torch.mapper_params import MapperParams, ProjectiveIntegratorParams
@@ -58,6 +58,8 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
     def __init__(self):
         self.frames_received = 0
         self.latest_pose = None
+
+        self.command_queue = asyncio.Queue()  # Commands to send to drone
         
         self.voxel_size_m = 0.007
         self.max_integration_distance_m = 2.0
@@ -140,79 +142,108 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
         else:
             print(f"Unknown encoding: {encoding}")
             return None
-    
+
     async def StreamSensorData(
         self,
         request_iterator: Iterator[sensor_stream_pb2.SensorData],
         context: grpc.aio.ServicerContext
-    ) -> Iterator[sensor_stream_pb2.StreamResponse]:
-        """Handle streaming sensor data"""
+    ):
+        """Bidirectional stream - receive sensor data, send commands"""
         
-        print("Client connected, starting to receive data...")
+        print("Client connected, starting bidirectional stream...")
+        
+        # Start receiving data in background task
+        receive_task = asyncio.create_task(
+            self._receive_sensor_data(request_iterator)
+        )
         
         try:
-            async for sensor_data in request_iterator:
-                # Extract pose
-                pose = sensor_data.pose
-                position = np.array([pose.x, pose.y, pose.z])
-                orientation = np.array([pose.qw, pose.qx, pose.qy, pose.qz])
-                
-                # Decompress images
-                color_image = self.decompress_image(
-                    sensor_data.color_image.data,
-                    sensor_data.color_image.encoding,
-                    sensor_data.color_image.width,
-                    sensor_data.color_image.height
-                )
-                
-                depth_image = self.decompress_image(
-                    sensor_data.depth_image.data,
-                    sensor_data.depth_image.encoding,
-                    sensor_data.depth_image.width,
-                    sensor_data.depth_image.height
-                )                
-                # Convert depth to meters if needed
-                # if sensor_data.depth_image.encoding == "16UC1":
-                # depth_image = depth_image.astype(np.float32) * sensor_data.depth_image.depth_scale
-
-                points_array = []
-                if sensor_data.points_data and sensor_data.num_points > 0:
-                    points_array = np.frombuffer(
-                        sensor_data.points_data, 
-                        dtype=np.int16
-                    ).reshape(sensor_data.num_points, 2)
-                    
-                    print(f"Points shape: {points_array.shape}")
-                
-                # Process with nvblox
-                self.process_frame(
-                    color_image,
-                    depth_image,
-                    position,
-                    orientation,
-                    points_array,
-                    sensor_data.color_image.timestamp_us
-                )
-                
-                self.frames_received += 1
-                
-                # Send acknowledgment every 10 frames
-                if self.frames_received % 10 == 0:
-                    response = sensor_stream_pb2.StreamResponse(
-                        success=True,
-                        message="OK",
-                        frames_received=self.frames_received
+            # Yield commands directly in this method
+            while not context.cancelled():
+                try:
+                    # Wait for commands in queue
+                    command = await asyncio.wait_for(
+                        self.command_queue.get(),
+                        timeout=1.0
                     )
-                    yield response
-                    print(f"Processed {self.frames_received} frames")
-                
-        except Exception as e:
-            print(f"Error processing stream: {e}")
-            yield sensor_stream_pb2.StreamResponse(
-                success=False,
-                message=str(e),
-                frames_received=self.frames_received
+                    
+                    print(f"📤 Sending command to drone: {command.command}")
+                    yield command
+                    
+                except asyncio.TimeoutError:
+                    # Send heartbeat to keep stream alive
+                    yield sensor_stream_pb2.DroneCommand(
+                        command=sensor_stream_pb2.DroneCommand.NONE
+                    )
+                    
+        except asyncio.CancelledError:
+            print("Stream cancelled")
+        finally:
+            # Clean up receive task
+            receive_task.cancel()
+            try:
+                await receive_task
+            except asyncio.CancelledError:
+                pass
+
+    
+    async def _receive_sensor_data(self, request_iterator):
+        async for sensor_data in request_iterator:
+            # Extract pose
+            pose = sensor_data.pose
+            position = np.array([pose.x, pose.y, pose.z])
+            orientation = np.array([pose.qw, pose.qx, pose.qy, pose.qz])
+            
+            # Decompress images
+            color_image = self.decompress_image(
+                sensor_data.color_image.data,
+                sensor_data.color_image.encoding,
+                sensor_data.color_image.width,
+                sensor_data.color_image.height
             )
+            
+            depth_image = self.decompress_image(
+                sensor_data.depth_image.data,
+                sensor_data.depth_image.encoding,
+                sensor_data.depth_image.width,
+                sensor_data.depth_image.height
+            )                
+            # Convert depth to meters if needed
+            # if sensor_data.depth_image.encoding == "16UC1":
+            # depth_image = depth_image.astype(np.float32) * sensor_data.depth_image.depth_scale
+
+            points_array = []
+            if sensor_data.points_data and sensor_data.num_points > 0:
+                points_array = np.frombuffer(
+                    sensor_data.points_data, 
+                    dtype=np.int16
+                ).reshape(sensor_data.num_points, 2)
+                
+            
+            # Process with nvblox
+            self.process_frame(
+                color_image,
+                depth_image,
+                position,
+                orientation,
+                points_array,
+                sensor_data.color_image.timestamp_us
+            )
+            
+            self.frames_received += 1
+
+    async def send_command_to_drone(self, command_type, **kwargs):
+        """Queue a command to send to drone"""
+        command = sensor_stream_pb2.DroneCommand(
+            command=command_type,
+            x=kwargs.get('x', 0.0),
+            y=kwargs.get('y', 0.0),
+            z=kwargs.get('z', 0.0),
+            velocity=kwargs.get('velocity', 0.0)
+        )
+        await self.command_queue.put(command)
+        print(f"Queued command: {command_type}")
+
     
     def process_frame(
         self,
@@ -267,8 +298,8 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
 
             self.visualizer._visualize_map(points_array)
 
-            drone_pos = [[-data['position'][0] * 10 + 40, data['position'][2] * 10 + 40]] # shifted by map-size for centering (400)
-            yaw, roll, pitch = quaternion_to_euler(data['quaternion'][0], data['quaternion'][1], data['quaternion'][2], data['quaternion'][3])
+            drone_pos = [[-position[0] * 10 + 40, position[2] * 10 + 40]] # shifted by map-size for centering (400)
+            yaw, roll, pitch = quaternion_to_euler(orientation[0], orientation[1], orientation[2], orientation[3])
             self.visualizer._visualize_drone(drone_pos, yaw)
             
             # Visualize mesh. This is performed at an (optionally) reduced rate.
@@ -285,46 +316,48 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
         # Print timing statistics
         current_time = time.time()
         if current_time - self.last_print_time >= PRINT_TIMING_EVERY_N_SECONDS:
-            print(timer_status_string())
+            # print(timer_status_string())
             self.last_print_time = current_time
         
         # For now, just log
-        print(f"Frame at position: {position}, orientation: {orientation}")
+        # print(f"Frame at position: {position}, orientation: {orientation}")
         
         # Optional: Save frames for debugging
         # cv2.imwrite(f"frame_{self.frames_received}_color.jpg", color_image)
 
-    
-    async def SendFrame(
-        self,
-        request: sensor_stream_pb2.SensorData,
-        context: grpc.aio.ServicerContext
-    ) -> sensor_stream_pb2.StreamResponse:
-        """Handle single frame (unary call)"""
-        
-        # Process single frame
-        pose = request.pose
-        position = np.array([pose.x, pose.y, pose.z])
-        orientation = np.array([pose.qw, pose.qx, pose.qy, pose.qz])
-        
-        color_image = self.decompress_image(
-            request.color_image.data,
-            request.color_image.encoding
-        )
-        
-        depth_image = self.decompress_image(
-            request.depth_image.data,
-            request.depth_image.encoding
-        )
-        
-        self.process_frame(color_image, depth_image, position, orientation, request.color_image.timestamp_us)
-        
-        return sensor_stream_pb2.StreamResponse(
-            success=True,
-            message="Frame processed",
-            frames_received=1
-        )
-
+async def manual_control(servicer):
+        """Example: Send commands from server keyboard"""
+        while True:
+            print("\nCommands: a=arm, t=takeoff, l=land, f=forward, c=left, v=right")
+            cmd = await asyncio.to_thread(input, "Command: ")
+            
+            if cmd == 'a':
+                await servicer.send_command_to_drone(
+                    sensor_stream_pb2.DroneCommand.ARM
+                )
+            elif cmd == 't':
+                await servicer.send_command_to_drone(
+                    sensor_stream_pb2.DroneCommand.TAKEOFF
+                )
+            elif cmd == 'l':
+                await servicer.send_command_to_drone(
+                    sensor_stream_pb2.DroneCommand.LAND
+                )
+            elif cmd == 'f':
+                await servicer.send_command_to_drone(
+                    sensor_stream_pb2.DroneCommand.FORWARD
+                )
+            elif cmd == 'c':
+                await servicer.send_command_to_drone(
+                    sensor_stream_pb2.DroneCommand.LEFT
+                )
+            elif cmd == 'v':
+                await servicer.send_command_to_drone(
+                    sensor_stream_pb2.DroneCommand.RIGHT
+                )
+            
+            elif cmd == 'q':
+                break
 
 async def serve(port: int = 50051):
     """Start the gRPC server"""
@@ -336,8 +369,9 @@ async def serve(port: int = 50051):
         ]
     )
     
+    servicer = SensorStreamServicer()
     sensor_stream_pb2_grpc.add_SensorStreamServiceServicer_to_server(
-        SensorStreamServicer(), server
+        servicer, server
     )
     
     server.add_insecure_port(f'[::]:{port}')
@@ -346,6 +380,9 @@ async def serve(port: int = 50051):
     await server.start()
     
     print("Server ready to receive data")
+
+    # Start manual control task
+    control_task = asyncio.create_task(manual_control(servicer))
     
     try:
         await server.wait_for_termination()

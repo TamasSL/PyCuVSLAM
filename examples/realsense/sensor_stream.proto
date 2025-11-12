@@ -45,18 +45,38 @@ message SensorData {
     uint32 num_points = 6;  // Number of points
 }
 
-// Response from server
-message StreamResponse {
-    bool success = 1;
-    string message = 2;
-    uint64 frames_received = 3;
+// Command from server to drone
+message DroneCommand {
+    enum CommandType {
+        NONE = 0;
+        ARM = 1;
+        TAKEOFF = 3;
+        LAND = 4;
+        FORWARD = 5;
+        LEFT = 6;
+        RIGHT = 7;
+    }
+    
+    CommandType command = 1;
+    
+    // Optional parameters
+    float x = 2;
+    float y = 3;
+    float z = 4;
+    float velocity = 5;
 }
 
-// Service definition
+// Response from drone
+message CommandResponse {
+    bool success = 1;
+    string message = 2;
+}
+
 service SensorStreamService {
     // Bidirectional streaming
-    rpc StreamSensorData(stream SensorData) returns (stream StreamResponse);
+    rpc StreamSensorData(stream SensorData) returns (stream DroneCommand);
     
-    // Unary call for single frame
-    rpc SendFrame(SensorData) returns (StreamResponse);
+    // Separate command channel
+    rpc SendCommand(DroneCommand) returns (CommandResponse);
 }
+

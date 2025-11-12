@@ -26,8 +26,7 @@ if _version_not_supported:
 
 
 class SensorStreamServiceStub(object):
-    """Service definition
-    """
+    """Missing associated documentation comment in .proto file."""
 
     def __init__(self, channel):
         """Constructor.
@@ -38,18 +37,17 @@ class SensorStreamServiceStub(object):
         self.StreamSensorData = channel.stream_stream(
                 '/sensor_stream.SensorStreamService/StreamSensorData',
                 request_serializer=sensor__stream__pb2.SensorData.SerializeToString,
-                response_deserializer=sensor__stream__pb2.StreamResponse.FromString,
+                response_deserializer=sensor__stream__pb2.DroneCommand.FromString,
                 _registered_method=True)
-        self.SendFrame = channel.unary_unary(
-                '/sensor_stream.SensorStreamService/SendFrame',
-                request_serializer=sensor__stream__pb2.SensorData.SerializeToString,
-                response_deserializer=sensor__stream__pb2.StreamResponse.FromString,
+        self.SendCommand = channel.unary_unary(
+                '/sensor_stream.SensorStreamService/SendCommand',
+                request_serializer=sensor__stream__pb2.DroneCommand.SerializeToString,
+                response_deserializer=sensor__stream__pb2.CommandResponse.FromString,
                 _registered_method=True)
 
 
 class SensorStreamServiceServicer(object):
-    """Service definition
-    """
+    """Missing associated documentation comment in .proto file."""
 
     def StreamSensorData(self, request_iterator, context):
         """Bidirectional streaming
@@ -58,8 +56,8 @@ class SensorStreamServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def SendFrame(self, request, context):
-        """Unary call for single frame
+    def SendCommand(self, request, context):
+        """Separate command channel
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -71,12 +69,12 @@ def add_SensorStreamServiceServicer_to_server(servicer, server):
             'StreamSensorData': grpc.stream_stream_rpc_method_handler(
                     servicer.StreamSensorData,
                     request_deserializer=sensor__stream__pb2.SensorData.FromString,
-                    response_serializer=sensor__stream__pb2.StreamResponse.SerializeToString,
+                    response_serializer=sensor__stream__pb2.DroneCommand.SerializeToString,
             ),
-            'SendFrame': grpc.unary_unary_rpc_method_handler(
-                    servicer.SendFrame,
-                    request_deserializer=sensor__stream__pb2.SensorData.FromString,
-                    response_serializer=sensor__stream__pb2.StreamResponse.SerializeToString,
+            'SendCommand': grpc.unary_unary_rpc_method_handler(
+                    servicer.SendCommand,
+                    request_deserializer=sensor__stream__pb2.DroneCommand.FromString,
+                    response_serializer=sensor__stream__pb2.CommandResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -87,8 +85,7 @@ def add_SensorStreamServiceServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class SensorStreamService(object):
-    """Service definition
-    """
+    """Missing associated documentation comment in .proto file."""
 
     @staticmethod
     def StreamSensorData(request_iterator,
@@ -106,7 +103,7 @@ class SensorStreamService(object):
             target,
             '/sensor_stream.SensorStreamService/StreamSensorData',
             sensor__stream__pb2.SensorData.SerializeToString,
-            sensor__stream__pb2.StreamResponse.FromString,
+            sensor__stream__pb2.DroneCommand.FromString,
             options,
             channel_credentials,
             insecure,
@@ -118,7 +115,7 @@ class SensorStreamService(object):
             _registered_method=True)
 
     @staticmethod
-    def SendFrame(request,
+    def SendCommand(request,
             target,
             options=(),
             channel_credentials=None,
@@ -131,9 +128,9 @@ class SensorStreamService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/sensor_stream.SensorStreamService/SendFrame',
-            sensor__stream__pb2.SensorData.SerializeToString,
-            sensor__stream__pb2.StreamResponse.FromString,
+            '/sensor_stream.SensorStreamService/SendCommand',
+            sensor__stream__pb2.DroneCommand.SerializeToString,
+            sensor__stream__pb2.CommandResponse.FromString,
             options,
             channel_credentials,
             insecure,

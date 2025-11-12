@@ -5,7 +5,7 @@ import cv2
 import time
 from typing import Optional
 
-from mavsdk.offboard import VelocityNedYaw, OffboardError
+from mavsdk.offboard import VelocityBodyYawspeed, OffboardError
 
 # Import generated protobuf code
 # Run: python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. sensor_stream.proto
@@ -13,19 +13,22 @@ import sensor_stream_pb2
 import sensor_stream_pb2_grpc
 
 import threading
+import queue
 
 import pyrealsense2 as rs
 from publish_subscribe import Publisher
 
 
 class OffboardControllerSubscriber:
-    def __init__(self, drone, event_loop):
+    def __init__(self, publisher: Publisher, drone, event_loop):
         self.drone = drone
+        self.queue = publisher.subscribe()
         self.event_loop = event_loop
         self._running = False
         self._thread = None
+        self._offboard_running = False
 
-        self.current_velocity = VelocityNedYaw(0.0, 0.0, 0.0, 0.0)
+        self.current_velocity = VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0)
         self._heartbeat_task = None
     
     def start(self):
@@ -47,14 +50,49 @@ class OffboardControllerSubscriber:
     
     async def _process_loop(self):
         """Main processing loop"""
+        while self._running:
+            
+            try:
+                command = await asyncio.to_thread(self.queue.get, timeout=0.1)
+                await self._execute_command(command)
+            except queue.Empty:
+                continue
 
-        await asyncio.to_thread(input, "\nPress Enter when ready for takeoff...")
+    async def _execute_command(self, command):
+        """Execute command received from the queue"""
+        try:
+            cmd_type = command.command
+            
+            if cmd_type == sensor_stream_pb2.DroneCommand.ARM:
+                await self._arm()
+                
+            elif cmd_type == sensor_stream_pb2.DroneCommand.TAKEOFF:
+                await self._takeoff()
+                
+            elif cmd_type == sensor_stream_pb2.DroneCommand.LAND:
+                await self._land()
 
+            elif cmd_type == sensor_stream_pb2.DroneCommand.FORWARD:
+                await self._forward()
+
+            elif cmd_type == sensor_stream_pb2.DroneCommand.LEFT:
+                await self._left()
+
+            elif cmd_type == sensor_stream_pb2.DroneCommand.RIGHT:
+                await self._right()
+                
+            print(f"✅ Command executed: {cmd_type}")
+            
+        except Exception as e:
+            print(f"❌ Failed to execute command: {e}")
+
+    async def _arm(self):
         print("Arming...")
         await self.drone.action.arm()
         
+    async def _takeoff(self):
         print("Taking off...")
-        await self.drone.action.set_takeoff_altitude(0.3)
+        await self.drone.action.set_takeoff_altitude(0.2)
         await self.drone.action.takeoff()
         await asyncio.sleep(5)  # Wait for takeoff
 
@@ -63,14 +101,12 @@ class OffboardControllerSubscriber:
         await self.drone.action.hold()
         await asyncio.sleep(2)
 
-        await asyncio.to_thread(input, "\nPress Enter when ready to start offboard mode...")
-
         # Must send setpoint before starting
         await self.drone.offboard.set_velocity_ned(self.current_velocity)
         
         try:
             await self.drone.offboard.start()
-            self.running = True
+            self._offboard_running = True
             
             # Start heartbeat task
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
@@ -81,32 +117,48 @@ class OffboardControllerSubscriber:
             raise
 
         await self.hover()
-        await asyncio.sleep(3)
-        
-        await self.move_forward(0.3)
         await asyncio.sleep(2)
-        
-        await self.hover()
-        await asyncio.sleep(3)
 
+    async def _land(self):
         if self._heartbeat_task:
             self._heartbeat_task.cancel()
             try:
                 await self._heartbeat_task
             except asyncio.CancelledError:
                 pass
-        
+
         await self.drone.offboard.stop()
         print("✅ Offboard mode stopped")
+        self._offboard_running = False
 
         print("Landing...")
         await self.drone.action.land()
 
+    async def _forward(self):
+        # move forward 10cm
+        await self.move_forward(0.1)
+        await asyncio.sleep(1)
+
+        await self.hover()
+
+    async def _left(self):
+        # rotate left 45 degrees
+        await self.set_yaw(-15)
+        await asyncio.sleep(3)
+
+        await self.hover()
+
+    async def _right(self):
+        # rotate right 45 degrees
+        await self.set_yaw(15)
+        await asyncio.sleep(3)
+
+        await self.hover()
     
     async def _heartbeat_loop(self):
         """Continuously send setpoints to keep offboard mode alive"""
         try:
-            while self.running:
+            while self._offboard_running:
                 await self.drone.offboard.set_velocity_ned(self.current_velocity)
                 await asyncio.sleep(0.05)  # 20 Hz
         except asyncio.CancelledError:
@@ -122,9 +174,9 @@ class OffboardControllerSubscriber:
         vx: forward velocity (m/s), positive = forward
         vy: right velocity (m/s), positive = right
         vz: down velocity (m/s), positive = down, negative = up
-        yaw_deg: yaw angle (degrees)
+        yaw_deg: yaw angular rate (degrees / s)
         """
-        self.current_velocity = VelocityNedYaw(vx, vy, vz, yaw_deg)
+        self.current_velocity = VelocityBodyYawspeed(vx, vy, vz, yaw_deg)
         # Heartbeat will send this automatically
     
     async def move_forward(self, speed=0.5):   #### !!!!!!!!!!!!!!!!!!!!!!! Limit the max translation speed of the FC

@@ -18,9 +18,10 @@ from publish_subscribe import Publisher
 
 
 class StreamerSubscriber:
-    def __init__(self, publisher: Publisher, name: str = "Subscriber", server_address: str = "localhost:50051", compress_images: bool = False):
+    def __init__(self, slam_publisher: Publisher, command_publisher: Publisher, name: str = "Subscriber", server_address: str = "localhost:50051", compress_images: bool = False):
         self.name = name
-        self.queue = publisher.subscribe()
+        self.queue = slam_publisher.subscribe()
+        self._command_publisher = command_publisher
         self._running = False
         self._thread = None
         self._processed_count = 0
@@ -67,14 +68,13 @@ class StreamerSubscriber:
 
             # Create stream
             print(f"{self.name}: Starting stream to {self.server_address}")
-            response_stream = self.stub.StreamSensorData(generate_sensor_data())
+            command_stream = self.stub.StreamSensorData(generate_sensor_data())
             
-            # Process responses
-            for response in response_stream:
-                if response.success:
-                    print(f"✓ Server received {response.frames_received} frames")
-                else:
-                    print(f"✗ Server error: {response.message}")
+            for command in command_stream:
+                print(f"📨 Received command from server: {command.command}")
+                
+                # Schedule the command to be executed by offboard controller
+                self._command_publisher.publish(command)
 
         except grpc.aio.AioRpcError as e:
             print(f"gRPC error: {e.code()}: {e.details()}")
