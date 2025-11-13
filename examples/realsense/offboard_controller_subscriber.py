@@ -102,7 +102,7 @@ class OffboardControllerSubscriber:
         await asyncio.sleep(2)
 
         # Must send setpoint before starting
-        await self.drone.offboard.set_velocity_ned(self.current_velocity)
+        await self.drone.offboard.set_velocity_body(self.current_velocity)
         
         try:
             await self.drone.offboard.start()
@@ -159,7 +159,7 @@ class OffboardControllerSubscriber:
         """Continuously send setpoints to keep offboard mode alive"""
         try:
             while self._offboard_running:
-                await self.drone.offboard.set_velocity_ned(self.current_velocity)
+                await self.drone.offboard.set_velocity_body(self.current_velocity)
                 await asyncio.sleep(0.05)  # 20 Hz
         except asyncio.CancelledError:
             print("Heartbeat loop cancelled")
