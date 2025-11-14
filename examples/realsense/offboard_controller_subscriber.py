@@ -28,6 +28,8 @@ class OffboardControllerSubscriber:
         self._thread = None
         self._offboard_running = False
 
+        self.takeoff_altitude = 0.2
+
         self.current_velocity = VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0)
         self._heartbeat_task = None
     
@@ -92,7 +94,7 @@ class OffboardControllerSubscriber:
         
     async def _takeoff(self):
         print("Taking off...")
-        await self.drone.action.set_takeoff_altitude(0.2)
+        await self.drone.action.set_takeoff_altitude(self.takeoff_altitude)
         await self.drone.action.takeoff()
         await asyncio.sleep(5)  # Wait for takeoff
 
@@ -159,13 +161,25 @@ class OffboardControllerSubscriber:
         """Continuously send setpoints to keep offboard mode alive"""
         try:
             while self._offboard_running:
-                await self.drone.offboard.set_velocity_body(self.current_velocity)
-                await asyncio.sleep(0.1)  # 10 Hz
-
-                # Debug: Check flight mode
-                async for flight_mode in self.drone.telemetry.flight_mode():
-                    print(f"Current flight mode: {flight_mode}")
+                # Get current altitude
+                async for position in self.drone.telemetry.position_velocity_ned():
+                    current_altitude = position.position.down_m
                     break
+                
+                # Calculate altitude error
+                altitude_error = self.takeoff_altitude - current_altitude
+                
+                # Add altitude correction to Z velocity
+                vz_correction = altitude_error * 0.5  # P controller
+                corrected_velocity = VelocityBodyYawspeed(
+                    self.current_velocity.forward_m_s,
+                    self.current_velocity.right_m_s,
+                    vz_corrected,
+                    self.current_velocity.yawspeed_deg_s
+                )
+
+                await self.drone.offboard.set_velocity_body(corrected_velocity)
+                await asyncio.sleep(0.05)  # 20 Hz
         except asyncio.CancelledError:
             print("Heartbeat loop cancelled")
 
