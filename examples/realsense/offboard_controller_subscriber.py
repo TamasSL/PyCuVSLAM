@@ -170,7 +170,7 @@ class OffboardControllerSubscriber:
                 altitude_error = self.takeoff_altitude - current_altitude
                 
                 # Add altitude correction to Z velocity
-                vz_correction = altitude_error * 0.5  # P controller
+                vz_correction = -altitude_error * 0.5  # P controller
                 corrected_velocity = VelocityBodyYawspeed(
                     self.current_velocity.forward_m_s,
                     self.current_velocity.right_m_s,
