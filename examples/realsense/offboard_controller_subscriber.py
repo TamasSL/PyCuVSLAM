@@ -174,7 +174,7 @@ class OffboardControllerSubscriber:
                 corrected_velocity = VelocityBodyYawspeed(
                     self.current_velocity.forward_m_s,
                     self.current_velocity.right_m_s,
-                    vz_corrected,
+                    vz_correction,
                     self.current_velocity.yawspeed_deg_s
                 )
 
