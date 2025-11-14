@@ -114,7 +114,7 @@ class OffboardControllerSubscriber:
         print("Taking off...")
         await self.drone.action.set_takeoff_altitude(self.takeoff_altitude)
         await self.drone.action.takeoff()
-        await asyncio.sleep(5)  # Wait for takeoff
+        await asyncio.sleep(20)  # Wait for takeoff
 
         # Get current position
         async for position in self.drone.telemetry.position_velocity_ned():
