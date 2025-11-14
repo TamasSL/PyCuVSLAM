@@ -97,9 +97,9 @@ class OffboardControllerSubscriber:
         await asyncio.sleep(5)  # Wait for takeoff
 
         # 2. HOLD POSITION (explicit position hold mode)
-        print("Holding position...")
-        await self.drone.action.hold()
-        await asyncio.sleep(2)
+        # print("Holding position...")
+        # await self.drone.action.hold()
+        # await asyncio.sleep(2)
 
         # Must send setpoint before starting
         await self.drone.offboard.set_velocity_body(self.current_velocity)
@@ -160,7 +160,12 @@ class OffboardControllerSubscriber:
         try:
             while self._offboard_running:
                 await self.drone.offboard.set_velocity_body(self.current_velocity)
-                await asyncio.sleep(0.05)  # 20 Hz
+                await asyncio.sleep(0.1)  # 10 Hz
+
+                # Debug: Check flight mode
+                async for flight_mode in self.drone.telemetry.flight_mode():
+                    print(f"Current flight mode: {flight_mode}")
+                    break
         except asyncio.CancelledError:
             print("Heartbeat loop cancelled")
 
