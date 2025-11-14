@@ -230,7 +230,7 @@ async def main() -> int:
             # Check timestamp difference with previous frame
             if prev_timestamp is not None:
                 timestamp_diff = timestamp - prev_timestamp
-                print(f"({timestamp_diff/1e6:.2f} ms) ")
+                # print(f"({timestamp_diff/1e6:.2f} ms) ")
 
             prev_timestamp = timestamp
             frame_id += 1
