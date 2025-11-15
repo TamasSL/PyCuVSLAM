@@ -92,6 +92,16 @@ class RerunVisualizer:
             map_uv, radii=0.5, colors=[255, 255, 255]
         ))
 
+    def _visualize_goal(self, goal):
+        rr.log('world/camera_0/observations', rr.Points2D(
+            goal, radii=0.5, colors=[0, 0, 255]
+        ))
+
+    def _visualize_stg(self, goal):
+        rr.log('world/camera_0/observations', rr.Points2D(
+            goal, radii=0.5, colors=[255, 165, 0]
+        ))
+
     def _visualize_drone(self, drone_uv, yaw_rad):
         """
         Visualize drone position and orientation
