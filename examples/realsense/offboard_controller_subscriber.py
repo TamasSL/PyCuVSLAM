@@ -71,6 +71,9 @@ class OffboardControllerSubscriber:
         """Execute command received from the queue"""
         try:
             cmd_type = command.command
+            x = command.x
+            y = command.y
+            z = command.z
             
             if cmd_type == sensor_stream_pb2.DroneCommand.ARM:
                 await self._arm()
@@ -82,7 +85,7 @@ class OffboardControllerSubscriber:
                 await self._land()
 
             elif cmd_type == sensor_stream_pb2.DroneCommand.FORWARD:
-                await self._forward()
+                await self._forward(x,y,z)
 
             elif cmd_type == sensor_stream_pb2.DroneCommand.LEFT:
                 await self._left()
@@ -90,6 +93,7 @@ class OffboardControllerSubscriber:
             elif cmd_type == sensor_stream_pb2.DroneCommand.RIGHT:
                 await self._right()
                 
+            print(f"current [{self.target_north}, {self.target_east}], target: [{x}, {y}, {z}]")
             print(f"✅ Command executed: {cmd_type}")
             
         except Exception as e:
@@ -152,9 +156,9 @@ class OffboardControllerSubscriber:
         print("Landing...")
         await self.drone.action.land()
 
-    async def _forward(self):
+    async def _forward(self, x, y, z):
         if USE_POSITION_NED_COMMANDS:
-            await self.move_forward_position()
+            await self.move_forward_position(x, y, z)
         else:
             # move forward 10cm
             await self.move_forward(0.1)
@@ -241,14 +245,18 @@ class OffboardControllerSubscriber:
         """Move forward at specified speed"""
         await self.set_velocity(speed, 0.0, 0.0, 0.0)
 
-    async def move_forward_position(self):
-        """Move forward 0.1m"""
-        import math
-        yaw_rad = self.target_yaw * math.pi / 180.0
+    async def move_forward_position(self, x, y, z):
+        """Move to specified position (z is orientation)"""
+
+        if (abs(self.target_north - x) > 0.3) or (abs(self.target_east - y) > 0.3):
+            print(f"Excessive jump in NED position command: current [{self.target_north}, {self.target_east}], target: [{x}, {y}]")
+            await asyncio.sleep(1)  # Wait for arrival
+            return
         
         # Update target position
-        self.target_north += 0.1 * math.cos(yaw_rad)
-        self.target_east += 0.1 * math.sin(yaw_rad)
+        self.target_north = x
+        self.target_east = y
+        self.target_yaw += min(z, 15) if z>=0 else max(z, -15)
     
         # Heartbeat will send updated position
         await asyncio.sleep(2)  # Wait for arrival

@@ -69,6 +69,10 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
         self.last_print_time = time.time()
         self._initialize_intrinsics()
 
+        self.stg_x_ned = 0
+        self.stg_y_ned = 0
+        self.stg_relative_angle = 0
+
         # Create some parameters
         projective_integrator_params = ProjectiveIntegratorParams()
         projective_integrator_params.projective_integrator_max_integration_distance_m = \
@@ -237,9 +241,9 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
         """Queue a command to send to drone"""
         command = sensor_stream_pb2.DroneCommand(
             command=command_type,
-            x=kwargs.get('x', 0.0),
-            y=kwargs.get('y', 0.0),
-            z=kwargs.get('z', 0.0),
+            x=self.stg_x_ned,
+            y=self.stg_y_ned,
+            z=self.stg_relative_angle,
             velocity=kwargs.get('velocity', 0.0)
         )
         await self.command_queue.put(command)
@@ -339,6 +343,10 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             relative_angle = (angle_agent - angle_st_goal) % 360.0
             if relative_angle > 180:
                 relative_angle -= 360
+
+            self.stg_x_ned = (stg_x_gt - 40) / 10
+            self.stg_y_ned = (stg_y_gt - 40) / 10
+            self.stg_relative_angle = math.radians(relative_angle)
 
             if relative_angle > 15.0:
                 print("right")
