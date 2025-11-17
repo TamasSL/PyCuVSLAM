@@ -179,7 +179,10 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
                 except asyncio.TimeoutError:
                     # Send heartbeat to keep stream alive
                     yield sensor_stream_pb2.DroneCommand(
-                        command=sensor_stream_pb2.DroneCommand.NONE
+                        command=sensor_stream_pb2.DroneCommand.NONE,
+                        x=self.stg_x_ned,
+                        y=self.stg_y_ned,
+                        z=self.stg_relative_angle
                     )
                     
         except asyncio.CancelledError:
@@ -337,16 +340,10 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             if relative_angle > 180:
                 relative_angle -= 360
 
-            self.stg_x_ned = (stg_x_gt - 40) / 10
-            self.stg_y_ned = (stg_y_gt - 40) / 10
-            self.stg_relative_angle = math.radians(relative_angle)
+            self.stg_x_ned = (stg_y_gt - 40) / 10
+            self.stg_y_ned = -(stg_x_gt - 40) / 10
+            self.stg_relative_angle = relative_angle
 
-            if relative_angle > 45.0:
-                print("right")
-            elif relative_angle < -45.0:
-                print("left")
-            else:
-                print("forward")
             self.visualizer._visualize_stg([stg_x_gt, stg_y_gt])
             
             # Visualize mesh. This is performed at an (optionally) reduced rate.

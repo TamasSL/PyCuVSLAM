@@ -37,6 +37,8 @@ class OffboardControllerSubscriber:
         self.target_down = -self.takeoff_altitude
         self.target_yaw = 0
 
+        self.enable_navigation = False
+
         self.current_velocity = VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0)
         self._heartbeat_task = None
     
@@ -88,10 +90,13 @@ class OffboardControllerSubscriber:
                 await self._forward(x,y,z)
 
             elif cmd_type == sensor_stream_pb2.DroneCommand.LEFT:
-                await self._left()
+                self.enable_navigation = True
 
             elif cmd_type == sensor_stream_pb2.DroneCommand.RIGHT:
-                await self._right()
+                self.enable_navigation = False
+
+            if self.enable_navigation:
+                await self._forward(x,y,z)
                 
             print(f"current [{self.target_north}, {self.target_east}], target: [{x}, {y}, {z}]")
             print(f"✅ Command executed: {cmd_type}")
