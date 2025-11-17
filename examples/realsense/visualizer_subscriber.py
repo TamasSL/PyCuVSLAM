@@ -182,7 +182,7 @@ class VisualizerSubscriber:
 
             self.visualizer._visualize_map(data['points'])
 
-            drone_pos = [[-data['position'][0] * 10 + 40, data['position'][2] * 10 + 40]] # shifted by map-size for centering (400)
+            drone_pos = [[-data['position'][0] * 10 + 80, data['position'][2] * 10 + 80]] # shifted by map-size for centering
             yaw, roll, pitch = quaternion_to_euler(data['quaternion'][0], data['quaternion'][1], data['quaternion'][2], data['quaternion'][3])
             self.visualizer._visualize_drone(drone_pos, yaw)
 

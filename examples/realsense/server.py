@@ -318,7 +318,7 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
                 traversible[p[0]][p[1]] = 1
 
 
-            drone_pos = [[-position[0] * 10 + 40, position[2] * 10 + 40]] # shifted by map-size for centering (400)
+            drone_pos = [[-position[0] * 10 + 80, position[2] * 10 + 80]] # shifted by map-size for centering
             yaw, roll, pitch = quaternion_to_euler(orientation[0], orientation[1], orientation[2], orientation[3])
             self.visualizer._visualize_drone(drone_pos, yaw)
 
@@ -340,8 +340,8 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             if relative_angle > 180:
                 relative_angle -= 360
 
-            self.stg_x_ned = (stg_y_gt - 40) / 10
-            self.stg_y_ned = -(stg_x_gt - 40) / 10
+            self.stg_x_ned = (stg_y_gt - 80) / 10
+            self.stg_y_ned = -(stg_x_gt - 80) / 10
             self.stg_relative_angle = relative_angle
 
             self.visualizer._visualize_stg([stg_x_gt, stg_y_gt])
