@@ -93,12 +93,12 @@ class RerunVisualizer:
         ))
 
     def _visualize_goal(self, goal):
-        rr.log('world/camera_0/observations', rr.Points2D(
+        rr.log('world/camera_0/ltg', rr.Points2D(
             goal, radii=0.5, colors=[0, 0, 255]
         ))
 
     def _visualize_stg(self, goal):
-        rr.log('world/camera_0/observations', rr.Points2D(
+        rr.log('world/camera_0/stg', rr.Points2D(
             goal, radii=0.5, colors=[255, 165, 0]
         ))
 

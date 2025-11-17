@@ -303,7 +303,7 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
 
             self.visualizer._visualize_map(points_array)
 
-            traversible = np.zeros(
+            traversible = np.ones(
                 (
                     80,
                     80,
@@ -313,24 +313,16 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             for p in points_array:
                 traversible[p[0]][p[1]] = 1
 
-            map_to_visualize = map_gt
-            H, W = map_to_visualize.shape
-            points = []
-            for i in range(0,H):
-                for j in range (0,W):
-                    if map_to_visualize[i][j] == 1:
-                        points.append([i, j])
 
             drone_pos = [[-position[0] * 10 + 40, position[2] * 10 + 40]] # shifted by map-size for centering (400)
             yaw, roll, pitch = quaternion_to_euler(orientation[0], orientation[1], orientation[2], orientation[3])
             self.visualizer._visualize_drone(drone_pos, yaw)
 
             planner = FMMPlanner(traversible, 360 / 45)
-            ltg = [10, 10]
+            ltg = [45, 45]
             reachable = planner.set_goal((ltg[0], ltg[1]))
-            stg_x_gt, stg_y_gt, replan = planner.get_short_term_goal(drone_pos)
+            stg_x_gt, stg_y_gt, replan = planner.get_short_term_goal(drone_pos[0])
             self.visualizer._visualize_goal([ltg])
-            self.visualizer._visualize_goal([stg_x_gt, stg_y_gt])
 
             angle_st_goal = math.degrees(
                 math.atan2(stg_x_gt - drone_pos[0][0], stg_y_gt - drone_pos[0][1])
@@ -354,6 +346,7 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
                 print("left")
             else:
                 print("forward")
+            self.visualizer._visualize_stg([stg_x_gt, stg_y_gt])
             
             # Visualize mesh. This is performed at an (optionally) reduced rate.
             current_time = time.time()
