@@ -327,6 +327,25 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             stg_x_gt, stg_y_gt, replan = planner.get_short_term_goal(drone_pos)
             self.visualizer._visualize_goal([ltg])
             self.visualizer._visualize_goal([stg_x_gt, stg_y_gt])
+
+            angle_st_goal = math.degrees(
+                math.atan2(stg_x_gt - drone_pos[0][0], stg_y_gt - drone_pos[0][1])
+            )
+            yaw_degrees = math.degrees(yaw)
+            angle_agent = (yaw_degrees) % 360.0
+            if angle_agent > 180:
+                angle_agent -= 360
+
+            relative_angle = (angle_agent - angle_st_goal) % 360.0
+            if relative_angle > 180:
+                relative_angle -= 360
+
+            if relative_angle > 15.0:
+                print("right")
+            elif relative_angle < -15.0:
+                print("left")
+            else:
+                print("forward")
             
             # Visualize mesh. This is performed at an (optionally) reduced rate.
             current_time = time.time()

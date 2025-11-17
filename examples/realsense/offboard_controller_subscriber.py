@@ -5,7 +5,7 @@ import cv2
 import time
 from typing import Optional
 
-from mavsdk.offboard import VelocityBodyYawspeed, OffboardError
+from mavsdk.offboard import VelocityBodyYawspeed, OffboardError, PositionNedYaw
 
 # Import generated protobuf code
 # Run: python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. sensor_stream.proto
@@ -18,6 +18,8 @@ import queue
 import pyrealsense2 as rs
 from publish_subscribe import Publisher
 
+USE_POSITION_NED_COMMANDS = True
+
 
 class OffboardControllerSubscriber:
     def __init__(self, publisher: Publisher, drone, event_loop):
@@ -29,6 +31,11 @@ class OffboardControllerSubscriber:
         self._offboard_running = False
 
         self.takeoff_altitude = 0.2
+
+        self.target_north = 0
+        self.target_east = 0
+        self.target_down = -self.takeoff_altitude
+        self.target_yaw = 0
 
         self.current_velocity = VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0)
         self._heartbeat_task = None
@@ -98,13 +105,25 @@ class OffboardControllerSubscriber:
         await self.drone.action.takeoff()
         await asyncio.sleep(5)  # Wait for takeoff
 
-        # 2. HOLD POSITION (explicit position hold mode)
-        # print("Holding position...")
-        # await self.drone.action.hold()
-        # await asyncio.sleep(2)
-
-        # Must send setpoint before starting
-        await self.drone.offboard.set_velocity_body(self.current_velocity)
+        if USE_POSITION_NED_COMMANDS:
+            # Get current position
+            async for position in self.drone.telemetry.position_velocity_ned():
+                self.target_north = position.position.north_m
+                self.target_east = position.position.east_m
+                self.target_down = position.position.down_m
+                break
+            
+            # Get current yaw
+            async for attitude in self.drone.telemetry.attitude_euler():
+                self.target_yaw = attitude.yaw_deg
+                break
+            
+            await self.drone.offboard.set_position_ned(
+                PositionNedYaw(self.target_north, self.target_east, self.target_down, self.target_yaw)
+            )
+        else:
+            # Must send setpoint before starting
+            await self.drone.offboard.set_velocity_body(self.current_velocity)
         
         try:
             await self.drone.offboard.start()
@@ -117,9 +136,6 @@ class OffboardControllerSubscriber:
         except OffboardError as e:
             print(f"❌ Failed to start offboard: {e}")
             raise
-
-        await self.hover()
-        await asyncio.sleep(2)
 
     async def _land(self):
         if self._heartbeat_task:
@@ -137,48 +153,71 @@ class OffboardControllerSubscriber:
         await self.drone.action.land()
 
     async def _forward(self):
-        # move forward 10cm
-        await self.move_forward(0.1)
-        await asyncio.sleep(1)
+        if USE_POSITION_NED_COMMANDS:
+            await self.move_forward_position()
+        else:
+            # move forward 10cm
+            await self.move_forward(0.1)
+            await asyncio.sleep(1)
 
-        await self.hover()
+            await self.hover()
 
     async def _left(self):
-        # rotate left 45 degrees
-        await self.set_yaw(-15)
-        await asyncio.sleep(3)
+        if USE_POSITION_NED_COMMANDS:
+            await self.move_left_position()
+        else:
+            # rotate left 45 degrees
+            await self.set_yaw(-15)
+            await asyncio.sleep(3)
 
-        await self.hover()
+            await self.hover()
 
     async def _right(self):
-        # rotate right 45 degrees
-        await self.set_yaw(15)
-        await asyncio.sleep(3)
+        if USE_POSITION_NED_COMMANDS:
+            await self.move_right_position()
+        else:
+            # rotate right 45 degrees
+            await self.set_yaw(15)
+            await asyncio.sleep(3)
 
-        await self.hover()
+            await self.hover()
     
     async def _heartbeat_loop(self):
         """Continuously send setpoints to keep offboard mode alive"""
+        """Send position setpoints"""
         try:
             while self._offboard_running:
-                # Get current altitude
-                async for position in self.drone.telemetry.position_velocity_ned():
-                    current_altitude = position.position.down_m
-                    break
                 
-                # Calculate altitude error
-                altitude_error = self.takeoff_altitude - current_altitude
-                
-                # Add altitude correction to Z velocity
-                vz_correction = -altitude_error * 0.5  # P controller
-                corrected_velocity = VelocityBodyYawspeed(
-                    self.current_velocity.forward_m_s,
-                    self.current_velocity.right_m_s,
-                    vz_correction,
-                    self.current_velocity.yawspeed_deg_s
-                )
+        except asyncio.CancelledError:
+         print("Heartbeat cancelled")
+        try:
+            while self._offboard_running:
 
-                await self.drone.offboard.set_velocity_body(corrected_velocity)
+                if USE_POSITION_NED_COMMANDS:
+                    await self.drone.offboard.set_position_ned(
+                        PositionNedYaw(self.target_north, self.target_east, self.target_down, self.target_yaw)
+                    )
+                
+                else:
+                    # Get current altitude
+                    async for position in self.drone.telemetry.position_velocity_ned():
+                        current_altitude = position.position.down_m
+                        break
+                    
+                    # Calculate altitude error
+                    altitude_error = self.takeoff_altitude - current_altitude
+                    
+                    # Add altitude correction to Z velocity
+                    vz_correction = -altitude_error * 0.5  # P controller
+                    corrected_velocity = VelocityBodyYawspeed(
+                        self.current_velocity.forward_m_s,
+                        self.current_velocity.right_m_s,
+                        vz_correction,
+                        self.current_velocity.yawspeed_deg_s
+                    )
+
+                    await self.drone.offboard.set_velocity_body(corrected_velocity)
+
                 await asyncio.sleep(0.05)  # 20 Hz
         except asyncio.CancelledError:
             print("Heartbeat loop cancelled")
@@ -201,6 +240,18 @@ class OffboardControllerSubscriber:
     async def move_forward(self, speed=0.5):   #### !!!!!!!!!!!!!!!!!!!!!!! Limit the max translation speed of the FC
         """Move forward at specified speed"""
         await self.set_velocity(speed, 0.0, 0.0, 0.0)
+
+    async def move_forward_position(self):
+        """Move forward 0.1m"""
+        import math
+        yaw_rad = self.target_yaw * math.pi / 180.0
+        
+        # Update target position
+        self.target_north += 0.1 * math.cos(yaw_rad)
+        self.target_east += 0.1 * math.sin(yaw_rad)
+    
+        # Heartbeat will send updated position
+        await asyncio.sleep(2)  # Wait for arrival
     
     async def move_backward(self, speed=0.5):
         """Move backward at specified speed"""
@@ -213,6 +264,16 @@ class OffboardControllerSubscriber:
     async def move_left(self, speed=0.5):
         """Move left at specified speed"""
         await self.set_velocity(0.0, -speed, 0.0, 0.0)
+
+    async def move_left_position(self):
+        """Rotate left 45 degrees"""
+        self.target_yaw -= 45
+        await asyncio.sleep(2)
+
+    async def move_right_position(self):
+        """Rotate right 45 degrees"""
+        self.target_yaw += 45
+        await asyncio.sleep(2)
     
     async def ascend(self, speed=0.5):
         """Ascend at specified speed"""
