@@ -12,6 +12,7 @@ from typing import Iterator
 import time
 import pyrealsense2 as rs
 import torch
+import math
 
 # Import generated protobuf code
 import sensor_stream_pb2
@@ -340,9 +341,9 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             self.stg_y_ned = (stg_y_gt - 40) / 10
             self.stg_relative_angle = math.radians(relative_angle)
 
-            if relative_angle > 15.0:
+            if relative_angle > 45.0:
                 print("right")
-            elif relative_angle < -15.0:
+            elif relative_angle < -45.0:
                 print("left")
             else:
                 print("forward")
