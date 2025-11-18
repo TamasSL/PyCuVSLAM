@@ -130,6 +130,7 @@ class OffboardControllerSubscriber:
             await self.drone.offboard.set_position_ned(
                 PositionNedYaw(self.target_north, self.target_east, self.target_down, self.target_yaw)
             )
+            await asyncio.sleep(2)  # Wait for takeoff
         else:
             # Must send setpoint before starting
             await self.drone.offboard.set_velocity_body(self.current_velocity)
@@ -137,6 +138,10 @@ class OffboardControllerSubscriber:
         try:
             await self.drone.offboard.start()
             self._offboard_running = True
+
+            for i in range(36):
+                self.target_yaw += 10
+                await asyncio.sleep(0.5)
             
             # Start heartbeat task
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
@@ -194,11 +199,6 @@ class OffboardControllerSubscriber:
     async def _heartbeat_loop(self):
         """Continuously send setpoints to keep offboard mode alive"""
         """Send position setpoints"""
-        try:
-            while self._offboard_running:
-                
-        except asyncio.CancelledError:
-         print("Heartbeat cancelled")
         try:
             while self._offboard_running:
 
@@ -261,7 +261,7 @@ class OffboardControllerSubscriber:
         # Update target position
         self.target_north = x
         self.target_east = y
-        self.target_yaw += min(z, 15) if z>=0 else max(z, -15)
+        self.target_yaw += min(z, 30) if z>=0 else max(z, -30)
     
         # Heartbeat will send updated position
         await asyncio.sleep(2)  # Wait for arrival

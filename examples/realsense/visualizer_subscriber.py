@@ -70,7 +70,7 @@ class VisualizerSubscriber:
 
         self.voxel_size_m = 0.01
         self.max_frames = 5000
-        self.max_integration_distance_m = 2.0
+        self.max_integration_distance_m = 5.0
         self.visualize_mesh_hz = 5
         self.last_visualize_mesh_time = time.time()
         self.last_print_time = time.time()

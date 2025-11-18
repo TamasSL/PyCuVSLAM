@@ -63,16 +63,19 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
 
         self.command_queue = asyncio.Queue()  # Commands to send to drone
         
-        self.voxel_size_m = 0.007
-        self.max_integration_distance_m = 2.0
+        self.voxel_size_m = 0.01
+        self.max_integration_distance_m = 3.0
         self.visualize_mesh_hz = 5
         self.last_visualize_mesh_time = time.time()
         self.last_print_time = time.time()
         self._initialize_intrinsics()
 
+        self.stg_x_gt = 0
+        self.stg_y_gt = 0
         self.stg_x_ned = 0
         self.stg_y_ned = 0
         self.stg_relative_angle = 0
+        self.initial_plan = True
 
         # Create some parameters
         projective_integrator_params = ProjectiveIntegratorParams()
@@ -309,8 +312,8 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
 
             traversible = np.ones(
                 (
-                    80,
-                    80,
+                    160,
+                    160,
                 ),
                 dtype=np.uint8,
             )
@@ -322,14 +325,20 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             yaw, roll, pitch = quaternion_to_euler(orientation[0], orientation[1], orientation[2], orientation[3])
             self.visualizer._visualize_drone(drone_pos, yaw)
 
-            planner = FMMPlanner(traversible, 360 / 45)
-            ltg = [45, 45]
+            planner = FMMPlanner(traversible, 360 / 15)
+            ltg = [90, 9]
             reachable = planner.set_goal((ltg[0], ltg[1]))
-            stg_x_gt, stg_y_gt, replan = planner.get_short_term_goal(drone_pos[0])
-            self.visualizer._visualize_goal([ltg])
+            if self.initial_plan:
+                self.stg_x_gt, self.stg_y_gt, replan = planner.get_short_term_goal(drone_pos[0])
+                self.initial_plan = False
+            elif ((abs(drone_pos[0][0] - self.stg_x_gt) < 3) and (abs(drone_pos[0][1] - self.stg_y_gt) < 3)):
+                self.stg_x_gt, self.stg_y_gt, replan = planner.get_short_term_goal([self.stg_x_gt, self.stg_y_gt])
+            else:
+                print("drone too far from stg")
+            self.visualizer._visualize_goal([[ltg[1], ltg[0]]])
 
             angle_st_goal = math.degrees(
-                math.atan2(stg_x_gt - drone_pos[0][0], stg_y_gt - drone_pos[0][1])
+                math.atan2(self.stg_x_gt - drone_pos[0][0], self.stg_y_gt - drone_pos[0][1])
             )
             yaw_degrees = math.degrees(yaw)
             angle_agent = (yaw_degrees) % 360.0
@@ -340,11 +349,12 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             if relative_angle > 180:
                 relative_angle -= 360
 
-            self.stg_x_ned = (stg_y_gt - 80) / 10
-            self.stg_y_ned = -(stg_x_gt - 80) / 10
+            self.stg_x_ned = (self.stg_y_gt - 80) / 10
+            self.stg_y_ned = -(self.stg_x_gt - 80) / 10
             self.stg_relative_angle = relative_angle
 
-            self.visualizer._visualize_stg([stg_x_gt, stg_y_gt])
+            self.visualizer._visualize_stg([self.stg_x_gt, self.stg_y_gt])
+            print([self.stg_x_gt, self.stg_y_gt])
             
             # Visualize mesh. This is performed at an (optionally) reduced rate.
             current_time = time.time()
