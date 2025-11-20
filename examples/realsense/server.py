@@ -66,7 +66,7 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
         
         self.voxel_size_m = 0.01
         self.max_integration_distance_m = 3.0
-        self.visualize_mesh_hz = 5
+        self.visualize_mesh_hz = 0.1
         self.last_visualize_mesh_time = time.time()
         self.last_print_time = time.time()
         self._initialize_intrinsics()
@@ -387,17 +387,6 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
                     self.visualizer.visualize_nvblox(color_mesh)
                 self.last_visualize_mesh_time = current_time
 
-        # Print timing statistics
-        current_time = time.time()
-        if current_time - self.last_print_time >= PRINT_TIMING_EVERY_N_SECONDS:
-            # print(timer_status_string())
-            self.last_print_time = current_time
-        
-        # For now, just log
-        # print(f"Frame at position: {position}, orientation: {orientation}")
-        
-        # Optional: Save frames for debugging
-        # cv2.imwrite(f"frame_{self.frames_received}_color.jpg", color_image)
 
 async def manual_control(servicer):
         """Example: Send commands from server keyboard"""
