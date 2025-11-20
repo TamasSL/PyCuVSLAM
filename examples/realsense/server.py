@@ -27,6 +27,7 @@ from nvblox_torch.mapper import Mapper
 from nvblox_torch.mapper_params import MapperParams, ProjectiveIntegratorParams
 from nvblox_torch.timer import Timer, timer_status_string
 from fmm_planner import FMMPlanner
+from exploration_planner import ExplorationPlanner
 
 PRINT_TIMING_EVERY_N_SECONDS = 1.0
 
@@ -77,6 +78,7 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
         self.stg_y_ned = 0
         self.stg_relative_angle = 0
         self.initial_plan = True
+        self.long_term_goal_planner = ExplorationPlanner(grid_resolution=0.1, safety_distance=0.3)
 
         # Create some parameters
         projective_integrator_params = ProjectiveIntegratorParams()
@@ -332,14 +334,25 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             yaw, roll, pitch = quaternion_to_euler(orientation[0], orientation[1], orientation[2], orientation[3])
             self.visualizer._visualize_drone(drone_pos, yaw)
 
-            planner = FMMPlanner(traversible, 360 / 15)
+            fmm_planner = FMMPlanner(traversible, 360 / 15)
+
+            target = long_term_goal_planner.get_next_exploration_target(
+                occupancy_grid,
+                drone_pos,
+                max_distance=50
+            )
+            
+            if target is None:
+                print("✅ Exploration complete!")
+                break
+
             ltg = [90, 9]
-            reachable = planner.set_goal((ltg[0], ltg[1]))
+            reachable = fmm_planner.set_goal((ltg[0], ltg[1]))
             if self.initial_plan:
-                self.stg_x_gt, self.stg_y_gt, replan = planner.get_short_term_goal(drone_pos[0])
+                self.stg_x_gt, self.stg_y_gt, replan = fmm_planner.get_short_term_goal(drone_pos[0])
                 self.initial_plan = False
             elif ((abs(drone_pos[0][0] - self.stg_x_gt) < 3) and (abs(drone_pos[0][1] - self.stg_y_gt) < 3)):
-                self.stg_x_gt, self.stg_y_gt, replan = planner.get_short_term_goal([self.stg_x_gt, self.stg_y_gt])
+                self.stg_x_gt, self.stg_y_gt, replan = fmm_planner.get_short_term_goal([self.stg_x_gt, self.stg_y_gt])
             else:
                 print("drone too far from stg")
             self.visualizer._visualize_goal([[ltg[1], ltg[0]]])
