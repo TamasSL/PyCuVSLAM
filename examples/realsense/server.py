@@ -66,7 +66,7 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
         
         self.voxel_size_m = 0.01
         self.max_integration_distance_m = 3.0
-        self.visualize_mesh_hz = 0.1
+        self.visualize_mesh_hz = 0.05
         self.last_visualize_mesh_time = time.time()
         self.last_print_time = time.time()
         self._initialize_intrinsics()
@@ -311,8 +311,6 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             if T_W_C_left_infrared is not None:
                 self.visualizer.visualize_cuvslam(T_W_C_left_infrared.cpu().numpy(), None, None)
 
-            self.visualizer._visualize_map(points_array)
-
             traversible = np.ones(
                 (
                     self.map_size,
@@ -323,8 +321,8 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             for p in points_array:
                 x = p[0]
                 y = p[1]
-                traversible[x][y] = 0
                 if p[2] == 1: # obstacle
+                    traversible[x][y] = 0
                     for i in range(max(x-1,0),min(x+2, self.map_size)):
                         for j in range(max(y-1,0),min(y+2, self.map_size)):
                             traversible[i][j] = 0
@@ -356,6 +354,7 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             else:
                 print("drone too far from stg")
             self.visualizer._visualize_goal([[ltg[1], ltg[0]]])
+            self.visualizer._visualize_map(points_array)
 
             angle_st_goal = math.degrees(
                 math.atan2(self.stg_x_gt - drone_pos[0][0], self.stg_y_gt - drone_pos[0][1])
@@ -374,18 +373,23 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             self.stg_relative_angle = relative_angle
 
             self.visualizer._visualize_stg([self.stg_x_gt, self.stg_y_gt])
-            print([self.stg_x_gt, self.stg_y_gt])
             
             # Visualize mesh. This is performed at an (optionally) reduced rate.
             current_time = time.time()
             if (current_time - self.last_visualize_mesh_time) >= (1.0 / self.visualize_mesh_hz):
-                with Timer('mesh/update'):
-                    self.nvblox_mapper.update_color_mesh()
-                with Timer('mesh/to_cpu'):
-                    color_mesh = self.nvblox_mapper.get_color_mesh()
+                self.nvblox_mapper.update_color_mesh()
+                color_mesh = self.nvblox_mapper.get_color_mesh()
                 with Timer('visualize/mesh'):
                     self.visualizer.visualize_nvblox(color_mesh)
                 self.last_visualize_mesh_time = current_time
+
+    def export_recording(self):
+        self.nvblox_mapper.update_color_mesh()
+        color_mesh = self.nvblox_mapper.get_color_mesh()
+        print("writing to file")
+        success = color_mesh.save('/home/tamas/Documents/code/fork/PyCuVSLAM/examples/realsense/output_mesh.glb')
+        print("written")
+        print(success)
 
 
 async def manual_control(servicer):
@@ -419,6 +423,9 @@ async def manual_control(servicer):
                     sensor_stream_pb2.DroneCommand.RIGHT
                 )
             
+            elif cmd == 'r':
+                servicer.export_recording()
+
             elif cmd == 'q':
                 break
 

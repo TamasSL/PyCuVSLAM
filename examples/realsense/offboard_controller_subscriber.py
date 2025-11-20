@@ -37,7 +37,7 @@ class OffboardControllerSubscriber:
         self.target_down = -self.takeoff_altitude
         self.target_yaw = 0
 
-        self.enable_navigation = False
+        self.follow_target_position = False
 
         self.current_velocity = VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0)
         self._heartbeat_task = None
@@ -73,9 +73,9 @@ class OffboardControllerSubscriber:
         """Execute command received from the queue"""
         try:
             cmd_type = command.command
-            x = command.x
-            y = command.y
-            z = command.z
+            target_x_ned = command.x
+            target_y_ned = command.y
+            diff_to_target_angle = command.z
             
             if cmd_type == sensor_stream_pb2.DroneCommand.ARM:
                 await self._arm()
@@ -87,19 +87,21 @@ class OffboardControllerSubscriber:
                 await self._land()
 
             elif cmd_type == sensor_stream_pb2.DroneCommand.FORWARD:
-                await self._forward(x,y,z)
+                print(f"✅ Command executed: follow target position once")
+                self.move_to_position(target_x_ned, target_y_ned, diff_to_target_angle)
 
             elif cmd_type == sensor_stream_pb2.DroneCommand.LEFT:
-                self.enable_navigation = True
+                print(f"✅ Command executed: enable continously following target position")
+                self.follow_target_position = True
 
             elif cmd_type == sensor_stream_pb2.DroneCommand.RIGHT:
-                self.enable_navigation = False
+                print(f"✅ Command executed: disable continously following target position")
+                self.follow_target_position = False
 
-            if self.enable_navigation:
-                await self._forward(x,y,z)
+            if self.follow_target_position:
+                await self.move_to_position(target_x_ned, target_y_ned, diff_to_target_angle)
                 
-            print(f"current [{self.target_north}, {self.target_east}], target: [{x}, {y}, {z}]")
-            print(f"✅ Command executed: {cmd_type}")
+            print(f"current [{self.target_north}, {self.target_east}], target: [{target_x_ned}, {target_y_ned}, {diff_to_target_angle}]")
             
         except Exception as e:
             print(f"❌ Failed to execute command: {e}")
@@ -165,16 +167,6 @@ class OffboardControllerSubscriber:
 
         print("Landing...")
         await self.drone.action.land()
-
-    async def _forward(self, x, y, z):
-        if USE_POSITION_NED_COMMANDS:
-            await self.move_forward_position(x, y, z)
-        else:
-            # move forward 10cm
-            await self.move_forward(0.1)
-            await asyncio.sleep(1)
-
-            await self.hover()
 
     async def _left(self):
         if USE_POSITION_NED_COMMANDS:
@@ -246,25 +238,22 @@ class OffboardControllerSubscriber:
         self.current_velocity = VelocityBodyYawspeed(vx, vy, vz, yaw_deg)
         # Heartbeat will send this automatically
     
-    async def move_forward(self, speed=0.5):   #### !!!!!!!!!!!!!!!!!!!!!!! Limit the max translation speed of the FC
+    async def move_forward(self, speed=0.5):
         """Move forward at specified speed"""
         await self.set_velocity(speed, 0.0, 0.0, 0.0)
 
-    async def move_forward_position(self, x, y, z):
-        """Move to specified position (z is orientation)"""
+    async def move_to_position(self, target_x_ned, target_y_ned, diff_to_target_angle):
+        """Move to specified position"""
 
-        if (abs(self.target_north - x) > 0.3) or (abs(self.target_east - y) > 0.3):
-            print(f"Excessive jump in NED position command: current [{self.target_north}, {self.target_east}], target: [{x}, {y}]")
-            await asyncio.sleep(1)  # Wait for arrival
-            return
+        if abs(diff_to_target_angle) < 30:
+            # Update target position if drone is facing closely towards the target position
+            self.target_north = target_x_ned
+            self.target_east = target_y_ned
         
-        # Update target position
-        self.target_north = x
-        self.target_east = y
-        self.target_yaw += min(z, 30) if z>=0 else max(z, -30)
+        self.target_yaw += diff_to_target_angle
     
         # Heartbeat will send updated position
-        await asyncio.sleep(2)  # Wait for arrival
+        await asyncio.sleep(2)  
     
     async def move_backward(self, speed=0.5):
         """Move backward at specified speed"""

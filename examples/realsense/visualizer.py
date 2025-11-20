@@ -134,11 +134,12 @@ class RerunVisualizer:
         dy = arrow_length * np.sin(yaw_rad)
         
         # Arrow origin and vector
-        rr.log('world/camera_0/drone_orientation', rr.Arrows2D(
+        rr.log('world/camera_0/z_drone_orientation', rr.Arrows2D(
             origins=drone_uv,
             vectors=[[dx, dy]],
             colors=[255, 0, 0],  # Red arrow
-            radii=0.3
+            radii=0.3,
+            draw_order=100
         ))
 
     def _visualize_nvblox_mesh(self, mesh: Mesh) -> None:
