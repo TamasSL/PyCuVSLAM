@@ -161,6 +161,10 @@ class OffboardControllerSubscriber:
             # Start heartbeat task
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
             
+            for i in range(36):
+                self.target_yaw += 10
+                await asyncio.sleep(0.5)
+
             print("✅ Offboard mode active")
         except OffboardError as e:
             print(f"❌ Failed to start offboard: {e}")

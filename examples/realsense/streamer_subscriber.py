@@ -16,7 +16,7 @@ import queue
 import pyrealsense2 as rs
 from publish_subscribe import Publisher
 
-SERVER_ADDRESS = "192.168.0.103:50051"
+SERVER_ADDRESS = "192.168.0.17:50051"
 
 
 class StreamerSubscriber:
