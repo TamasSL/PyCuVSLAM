@@ -76,12 +76,13 @@ class StreamerSubscriber:
                 # Schedule the command to be executed by offboard controller
                 self._command_publisher.publish(command)
 
-        except grpc.aio.AioRpcError as e:
+        except grpc.RpcError as e:
             print(f"gRPC error: {e.code()}: {e.details()}")
-        except asyncio.CancelledError:
-            print(f"{self.name}: Stream cancelled")
         except Exception as e:
             print(f"Streaming error: {e}")
+        finally:
+            if self.channel:
+                self.channel.close()
     
     def _to_protobuf(self, data) -> sensor_stream_pb2.SensorData:
         """Convert queue data to protobuf message"""
