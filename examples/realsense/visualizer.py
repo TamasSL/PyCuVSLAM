@@ -88,8 +88,18 @@ class RerunVisualizer:
         rr.log('world/trajectory', rr.LineStrips3D(self.t_W_C_history), static=True)
 
     def _visualize_map(self, map_uv):
-        rr.log('world/camera_0/observations', rr.Points2D(
-            map_uv, radii=0.5, colors=[255, 255, 255]
+        obstacles = []
+        explored = []
+        for p in map_uv:
+            if p[2] == 1:
+                obstacles.append([p[0],p[1]])
+            elif p[2] == 2:
+                explored.append([p[0],p[1]])
+        rr.log('world/camera_0/obstacles', rr.Points2D(
+            obstacles, radii=0.5, colors=[255, 255, 255]
+        ))
+        rr.log('world/camera_0/explored', rr.Points2D(
+            explored, radii=0.5, colors=[128, 128, 128]
         ))
 
     def _visualize_goal(self, goal):

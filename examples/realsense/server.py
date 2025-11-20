@@ -70,6 +70,7 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
         self.last_print_time = time.time()
         self._initialize_intrinsics()
 
+        self.map_size = 160   # the 2d map is of size map_size x map_size where each element represents a 10x10cm square
         self.stg_x_gt = 0
         self.stg_y_gt = 0
         self.stg_x_ned = 0
@@ -229,7 +230,7 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
                 points_array = np.frombuffer(
                     sensor_data.points_data, 
                     dtype=np.int16
-                ).reshape(sensor_data.num_points, 2)
+                ).reshape(sensor_data.num_points, 3)
                 
             
             # Process with nvblox
@@ -312,13 +313,19 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
 
             traversible = np.ones(
                 (
-                    160,
-                    160,
+                    self.map_size,
+                    self.map_size
                 ),
                 dtype=np.uint8,
             )
             for p in points_array:
-                traversible[p[0]][p[1]] = 1
+                x = p[0]
+                y = p[1]
+                traversible[x][y] = 0
+                if p[2] == 1: # obstacle
+                    for i in range(max(x-1,0),min(x+2, self.map_size)):
+                        for j in range(max(y-1,0),min(y+2, self.map_size)):
+                            traversible[i][j] = 0
 
 
             drone_pos = [[-position[0] * 10 + 80, position[2] * 10 + 80]] # shifted by map-size for centering
@@ -349,8 +356,8 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             if relative_angle > 180:
                 relative_angle -= 360
 
-            self.stg_x_ned = (self.stg_y_gt - 80) / 10
-            self.stg_y_ned = -(self.stg_x_gt - 80) / 10
+            self.stg_x_ned = (self.stg_y_gt - self.map_size / 2) / 10
+            self.stg_y_ned = -(self.stg_x_gt - self.map_size / 2) / 10
             self.stg_relative_angle = relative_angle
 
             self.visualizer._visualize_stg([self.stg_x_gt, self.stg_y_gt])

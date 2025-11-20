@@ -279,13 +279,14 @@ async def main() -> int:
 
                     agent_view_cropped, map_gt, agent_view_explored, explored_gt = map_builder.update_map(images[1] * np.float32(depth_scale) * 100, [odom_pose.translation[2] * 100, -odom_pose.translation[0] * 100, -yaw])
 
-                    map_to_visualize = map_gt
-                    H, W = map_to_visualize.shape
+                    H, W = map_gt.shape
                     points = []
                     for i in range(0,H):
                         for j in range (0,W):
-                            if map_to_visualize[i][j] == 1:
-                                points.append([i, j])
+                            if map_gt[i][j] == 1:
+                                points.append([i, j, 1])  # obstacle
+                            if explored_gt[i][j] ==1:
+                                points.append([i, j, 2])  # explored
 
                     # await send_vision_position(drone, x_ned, y_ned, z_ned, orientation, yaw, roll, pitch)
                     # await print_ned_coordinates(drone)

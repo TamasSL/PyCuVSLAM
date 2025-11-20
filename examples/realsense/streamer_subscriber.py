@@ -138,7 +138,7 @@ class StreamerSubscriber:
 
         # Convert points to numpy array and serialize
         if 'points' in data and len(data['points']) > 0:
-            points_array = np.array(data['points'], dtype=np.int16)  # Shape: (N, 2)
+            points_array = np.array(data['points'], dtype=np.int16)  # Shape: (N, 3)
         
             sensor_data.points_data = points_array.tobytes()
             sensor_data.num_points = len(points_array)
