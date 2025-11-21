@@ -13,6 +13,7 @@ import time
 import pyrealsense2 as rs
 import torch
 import math
+import os
 
 # Import generated protobuf code
 import sensor_stream_pb2
@@ -79,6 +80,7 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
         self.stg_relative_angle = 0
         self.initial_plan = True
         self.long_term_goal_planner = ExplorationPlanner(grid_resolution=0.1, safety_distance=0.3)
+        self.frame_id = 0
 
         # Create some parameters
         projective_integrator_params = ProjectiveIntegratorParams()
@@ -282,6 +284,8 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
         if dataload_timer is not None:
             dataload_timer.stop()
 
+        self.frame_id += 1
+
         # Do reconstruction using the depth
         with Timer('depth'):
             T_W_C_left_infrared = to_homogeneous(position, orientation)
@@ -291,6 +295,7 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
                 depth = torch.from_numpy(depth_image).float().to('cuda')     
                 depth_intrinsics = torch.from_numpy(rs_intrinsics_to_matrix(self.depth_intrinsic)).float()      
                 self.nvblox_mapper.add_depth_frame(depth, T_W_C_left_infrared, depth_intrinsics)
+                self.save_depth(frame_id, depth)
 
         with Timer('color'):
             if T_W_C_left_infrared is not None and \
@@ -300,6 +305,7 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
                 color = torch.from_numpy(color_image).to('cuda')     
                 color_intrinsics = torch.from_numpy(rs_intrinsics_to_matrix(self.color_intrinsic)).float()      
                 self.nvblox_mapper.add_color_frame(color, T_W_C_color, color_intrinsics)
+                self.save_image(frame_id, color_image)
 
         with Timer('visualize_rerun'):
             # Visualize pose. This occurs every time we track.
@@ -392,6 +398,15 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
         print(success)
 
 
+        def save_image(self, frame_id: int, image: np.ndarray, quality: int = 80):
+            """Compress image to JPEG"""
+            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), quality]
+            cv2.imwrite(f'images/rgb_{frame_id}.jpg', image, encode_param)
+    
+        def save_depth(self, frame_id: int, depth: np.ndarray):
+            """Compress depth using PNG (lossless)"""
+            cv2.imwrite(f'images/depth_{frame_id}.png', depth)
+
 async def manual_control(servicer):
         """Example: Send commands from server keyboard"""
         while True:
@@ -438,6 +453,8 @@ async def serve(port: int = 50051):
             ('grpc.max_receive_message_length', 50 * 1024 * 1024),
         ]
     )
+
+    os.makedirs('images', exist_ok=True)
     
     servicer = SensorStreamServicer()
     sensor_stream_pb2_grpc.add_SensorStreamServiceServicer_to_server(
