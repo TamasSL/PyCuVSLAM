@@ -128,13 +128,12 @@ class OffboardControllerSubscriber:
             self.target_yaw = attitude.yaw_deg
             break
         
-        await self.drone.offboard.set_position_ned(
-            PositionNedYaw(self.target_north, self.target_east, self.target_down, self.target_yaw)
-        )
-        await asyncio.sleep(2)  # Wait for takeoff
+        for i in range(10):
+            await self.drone.offboard.set_position_ned(
+                PositionNedYaw(self.target_north, self.target_east, self.target_down, self.target_yaw)
+            )
         
         try:
-            await self.drone.offboard.start()
             self._offboard_running = True
 
             # initialization sequence for initial discovery
@@ -160,6 +159,8 @@ class OffboardControllerSubscriber:
             
             # Start heartbeat task
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
+            await self.drone.offboard.start()
             
             for i in range(36):
                 self.target_yaw += 10
