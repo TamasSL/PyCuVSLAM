@@ -13,7 +13,7 @@ params = dict(
     agent_max_z=100,
     du_scale = 2,
     visualize=True,
-    obs_threshold=1.1,
+    obs_threshold=1.3,
     agent_height=60,
     agent_view_angle=0
 )
