@@ -192,6 +192,7 @@ class ExplorationPlanner:
             # Check 8-connected neighbors
             for dr, dc in [(-1,0), (1,0), (0,-1), (0,1), (-1,-1), (-1,1), (1,-1), (1,1)]:
                 neighbor = (current[0] + dr, current[1] + dc)
+                neighbor = [int(x) for x in neighbor]
                 
                 if not (0 <= neighbor[0] < H and 0 <= neighbor[1] < W):
                     continue
@@ -202,10 +203,10 @@ class ExplorationPlanner:
                 if occupancy_grid[neighbor[0], neighbor[1]] == -1:
                     continue
                 
-                tentative_g = g_score[current] + 1
+                tentative_g = g_score[tuple(current)] + 1
                 
-                if neighbor not in g_score or tentative_g < g_score[neighbor]:
-                    g_score[neighbor] = tentative_g
+                if tuple(neighbor) not in g_score or tentative_g < g_score[tuple(neighbor)]:
+                    g_score[tuple(neighbor)] = tentative_g
                     f_score = tentative_g + heuristic(neighbor, goal)
                     heapq.heappush(open_set, (f_score, neighbor))
         

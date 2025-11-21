@@ -323,6 +323,11 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
                 ),
                 dtype=np.uint8,
             )
+            long_term_grid = np.full(
+                (self.map_size, self.map_size),
+                -1,
+                dtype=np.int8,
+            )
             for p in points_array:
                 x = p[0]
                 y = p[1]
@@ -331,7 +336,9 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
                     for i in range(max(x-1,0),min(x+2, self.map_size)):
                         for j in range(max(y-1,0),min(y+2, self.map_size)):
                             traversible[i][j] = 0
-
+                    long_term_grid[x][y] = 1
+                elif p[2] == 2: #explored, free space
+                    long_term_grid[x][y] = 0
 
             drone_pos = [[-position[0] * 10 + 80, position[2] * 10 + 80]] # shifted by map-size for centering
             yaw, roll, pitch = quaternion_to_euler(orientation[0], orientation[1], orientation[2], orientation[3])
@@ -339,25 +346,22 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
 
             fmm_planner = FMMPlanner(traversible, 360 / 15)
 
-            target = long_term_goal_planner.get_next_exploration_target(
-                occupancy_grid,
-                drone_pos,
+            lt_target = self.long_term_goal_planner.get_next_exploration_target(
+                long_term_grid, 
+                drone_pos[0],
                 max_distance=50
             )
             
-            if target is None:
-                print("✅ Exploration complete!")
-                break
+            #if target is None:
+            #    print("✅ Exploration complete!")
 
-            ltg = [90, 9]
+            ltg = [90, 9] # lt_target or [80, 80]
             reachable = fmm_planner.set_goal((ltg[0], ltg[1]))
             if self.initial_plan:
                 self.stg_x_gt, self.stg_y_gt, replan = fmm_planner.get_short_term_goal(drone_pos[0])
                 self.initial_plan = False
             elif ((abs(drone_pos[0][0] - self.stg_x_gt) < 3) and (abs(drone_pos[0][1] - self.stg_y_gt) < 3)):
                 self.stg_x_gt, self.stg_y_gt, replan = fmm_planner.get_short_term_goal([self.stg_x_gt, self.stg_y_gt])
-            else:
-                print("drone too far from stg")
             self.visualizer._visualize_goal([[ltg[1], ltg[0]]])
             self.visualizer._visualize_map(points_array)
 
@@ -369,13 +373,15 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             if angle_agent > 180:
                 angle_agent -= 360
 
-            relative_angle = (angle_agent - angle_st_goal) % 360.0
+            relative_angle = (angle_agent + angle_st_goal) % 360.0
             if relative_angle > 180:
                 relative_angle -= 360
 
             self.stg_x_ned = (self.stg_y_gt - self.map_size / 2) / 10
             self.stg_y_ned = -(self.stg_x_gt - self.map_size / 2) / 10
             self.stg_relative_angle = relative_angle
+
+            print(f"angle_agent: {angle_agent}, st_angle: {-angle_st_goal}, rel_angle: {relative_angle}")
 
             self.visualizer._visualize_stg([self.stg_x_gt, self.stg_y_gt])
             

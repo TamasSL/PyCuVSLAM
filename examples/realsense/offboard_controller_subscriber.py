@@ -88,7 +88,7 @@ class OffboardControllerSubscriber:
 
             elif cmd_type == sensor_stream_pb2.DroneCommand.FORWARD:
                 print(f"✅ Command executed: follow target position once")
-                self.move_to_position(target_x_ned, target_y_ned, diff_to_target_angle)
+                await self.move_to_position(target_x_ned, target_y_ned, diff_to_target_angle)
 
             elif cmd_type == sensor_stream_pb2.DroneCommand.LEFT:
                 print(f"✅ Command executed: enable continously following target position")
