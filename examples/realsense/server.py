@@ -296,7 +296,7 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
                 depth = torch.from_numpy(depth_image).float().to('cuda')     
                 depth_intrinsics = torch.from_numpy(rs_intrinsics_to_matrix(self.depth_intrinsic)).float()      
                 self.nvblox_mapper.add_depth_frame(depth, T_W_C_left_infrared, depth_intrinsics)
-                self.save_depth(depth)
+                self.save_depth(depth_image)
 
         with Timer('color'):
             if T_W_C_left_infrared is not None and \
@@ -387,9 +387,9 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
 
             self.stg_x_ned = (self.stg_y_gt - self.map_size / 2) / 10
             self.stg_y_ned = -(self.stg_x_gt - self.map_size / 2) / 10
-            self.stg_relative_angle = relative_angle
+            self.stg_relative_angle = -relative_angle
 
-            print(f"angle_agent: {angle_agent}, st_angle: {-angle_st_goal}, rel_angle: {relative_angle}")
+            # print(f"angle_agent: {angle_agent}, st_angle: {-angle_st_goal}, rel_angle: {relative_angle}")
 
             self.visualizer._visualize_stg([self.stg_x_gt, self.stg_y_gt])
             
@@ -413,19 +413,19 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
     def save_image(self, image: np.ndarray, quality: int = 80):
         """Compress image to JPEG"""
         if self.save_frames_to_disk:
-            self.frame_id += 1
             encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), quality]
             cv2.imwrite(f'images/rgb_{self.frame_id}.jpg', image, encode_param)
 
     def save_depth(self, depth: np.ndarray):
         """Compress depth using PNG (lossless)"""
-        if self.save_frames_to_disk
-            cv2.imwrite(f'images/depth_{self.frame_id}.png', depth)
+        if self.save_frames_to_disk:
+            self.frame_id += 1
+            cv2.imwrite(f'images/depth_{self.frame_id}.png', depth * 100)
 
     def enable_saving_frames(self):
         self.save_frames_to_disk = True
 
-    def enable_saving_frames(self):
+    def disable_saving_frames(self):
         self.save_frames_to_disk = False
 
 async def manual_control(servicer):

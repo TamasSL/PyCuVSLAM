@@ -5,3 +5,5 @@
 __pycache__
 build
 dataset
+examples/realsense/images*
+examples/realsense/output_mesh*
