@@ -44,6 +44,13 @@ class MapBuilder(object):
             ),
             dtype=np.float32,
         )
+        self.explored_area = np.zeros(
+            (
+                self.map_size_cm // self.resolution,
+                self.map_size_cm // self.resolution,
+            ),
+            dtype=np.uint8,
+        )
 
         self.agent_height = params["agent_height"]
         self.agent_view_angle = params["agent_view_angle"]
@@ -115,13 +122,13 @@ class MapBuilder(object):
         )
 
 
-    def get_explored_area(x, y, yaw_deg):
+    def update_explored_area(x, y, yaw_rad):
         """
         Calculate which grid cells are visible to the camera.
         
         Args:
             x, y: camera's position as grid coordinates
-            yaw_deg: camera's orientation
+            yaw_rad: camera's orientation
         
         Returns:
             grid: numpy array of shape (grid_size, grid_size)
@@ -136,10 +143,6 @@ class MapBuilder(object):
         # Check if drone is within grid bounds
         if not (0 <= x < grid_size and 0 <= y < grid_size):
             return grid
-        
-        # Convert yaw to radians
-        # Assuming 0° = North (+Y), 90° = East (+X), etc.
-        yaw_rad = np.deg2rad(yaw_deg)
         
         # Calculate FOV boundaries
         fov_rad = np.deg2rad(self.hfov)
@@ -170,4 +173,4 @@ class MapBuilder(object):
                 if abs(angle_diff) <= half_fov:
                     grid[row, col] = 1
         
-        return grid
+        self.explored_area += self.grid

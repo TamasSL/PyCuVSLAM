@@ -95,6 +95,8 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
                             integrator_types=ProjectiveIntegratorType.TSDF,
                             mapper_parameters=mapper_params)
 
+        self.map_builder = MapBuilder()
+
         # Visualize in rerun
         self.visualizer = RerunVisualizer()
         self.last_position = None
@@ -316,6 +318,15 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             if T_W_C_left_infrared is not None:
                 self.visualizer.visualize_cuvslam(T_W_C_left_infrared.cpu().numpy(), None, None)
 
+            drone_pos = [[-position[0] * 10 + 80, position[2] * 10 + 80]] # shifted by map-size for centering
+            yaw, roll, pitch = quaternion_to_euler(orientation[0], orientation[1], orientation[2], orientation[3])
+            self.visualizer._visualize_drone(drone_pos, yaw)
+
+            self.map_builder.update_explored_area(drone_pos[0[0]], drone_pos[0][1], yaw)
+            for x in len(self.map_builder.explored_area):
+                for y in len(self.map_builder.explored_area):
+                        if self.map_builder.explored_area[x][y] == 1
+                            points_array.append([x, y, 2])
             traversible = np.ones(
                 (
                     self.map_size,
@@ -337,18 +348,12 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
                         for j in range(max(y-1,0),min(y+2, self.map_size)):
                             traversible[i][j] = 0
                     long_term_grid[x][y] = 1
-                elif p[2] == 2: #explored, free space
-                    long_term_grid[x][y] = 0
-
-            drone_pos = [[-position[0] * 10 + 80, position[2] * 10 + 80]] # shifted by map-size for centering
-            yaw, roll, pitch = quaternion_to_euler(orientation[0], orientation[1], orientation[2], orientation[3])
-            self.visualizer._visualize_drone(drone_pos, yaw)
-
+                # temporary
+                #elif p[2] == 2: #explored, free space
+                #    long_term_grid[x][y] = 0
+            
             fmm_planner = FMMPlanner(traversible, 360 / 15)
 
-            map_builder = MapBuilder()
-            explored_area = map_builder.get_explored_area()
-            
             lt_target = self.long_term_goal_planner.get_next_exploration_target(
                 long_term_grid, 
                 drone_pos[0],
