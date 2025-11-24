@@ -6,7 +6,7 @@ params = dict(
     frame_width = 640,
     frame_height = 480,
     hfov = 87,
-    vision_range= 20,
+    vision_range=20,
     map_size_cm=1600,
     resolution=10,
     agent_min_z=80,
@@ -96,23 +96,11 @@ class MapBuilder(object):
         explored_gt = self.map.sum(2)
         explored_gt[explored_gt > 1] = 1.0
 
+        # remove false obstacles
+        map_gt[(explored_gt > 1) and (geocentric_flat < 0.5)] = 0
+
         return agent_view_cropped, map_gt, agent_view_explored, explored_gt
 
-    def get_st_pose(self, current_loc: (float, float, float)):
-        loc = [
-            -(
-                current_loc[0] / self.resolution
-                - self.map_size_cm // (self.resolution * 2)
-            )
-            / (self.map_size_cm // (self.resolution * 2)),
-            -(
-                current_loc[1] / self.resolution
-                - self.map_size_cm // (self.resolution * 2)
-            )
-            / (self.map_size_cm // (self.resolution * 2)),
-            90 - np.rad2deg(current_loc[2]),
-        ]
-        return loc
 
     def reset_map(self, map_size: int):
         self.map_size_cm = map_size
@@ -126,5 +114,60 @@ class MapBuilder(object):
             dtype=np.float32,
         )
 
-    def get_map(self):
-        return self.map
+
+    def get_explored_area(x, y, yaw_deg):
+        """
+        Calculate which grid cells are visible to the camera.
+        
+        Args:
+            x, y: camera's position as grid coordinates
+            yaw_deg: camera's orientation
+        
+        Returns:
+            grid: numpy array of shape (grid_size, grid_size)
+                0 = not visible
+                1 = visible to camera
+        """
+        
+        # Initialize grid (all unexplored)
+        grid_size = self.map_size_cm // self.resolution
+        grid = np.zeros((grid_size, grid_size), dtype=np.uint8)
+        
+        # Check if drone is within grid bounds
+        if not (0 <= x < grid_size and 0 <= y < grid_size):
+            return grid
+        
+        # Convert yaw to radians
+        # Assuming 0° = North (+Y), 90° = East (+X), etc.
+        yaw_rad = np.deg2rad(yaw_deg)
+        
+        # Calculate FOV boundaries
+        fov_rad = np.deg2rad(self.hfov)
+        half_fov = fov_rad / 2
+        
+        # Iterate through all grid cells within max range
+        for row in range(max(0, x - vision_range), 
+                        min(grid_size, x + vision_range + 1)):
+            for col in range(max(0, y - vision_range), 
+                            min(grid_size, y + vision_range + 1)):
+                
+                dx = abs(row - x)
+                dy = abs(col - y)
+                distance = np.sqrt(dx**2 + dy**2)
+                
+                # Skip if too far
+                if distance > self.vision_range or distance < 0.01:  # Skip drone's own cell
+                    continue
+                
+                # Angle to cell
+                angle_to_cell = np.arctan2(dx, dy)  # Note: atan2(x, y) for our convention
+                
+                # Normalize angle difference to [-π, π]
+                angle_diff = angle_to_cell - yaw_rad
+                angle_diff = np.arctan2(np.sin(angle_diff), np.cos(angle_diff))
+                
+                # Check if within FOV
+                if abs(angle_diff) <= half_fov:
+                    grid[row, col] = 1
+        
+        return grid

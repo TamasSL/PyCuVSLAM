@@ -346,6 +346,9 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
 
             fmm_planner = FMMPlanner(traversible, 360 / 15)
 
+            map_builder = MapBuilder()
+            explored_area = map_builder.get_explored_area()
+            
             lt_target = self.long_term_goal_planner.get_next_exploration_target(
                 long_term_grid, 
                 drone_pos[0],
