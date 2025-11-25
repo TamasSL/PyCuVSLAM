@@ -29,6 +29,7 @@ from nvblox_torch.mapper_params import MapperParams, ProjectiveIntegratorParams
 from nvblox_torch.timer import Timer, timer_status_string
 from fmm_planner import FMMPlanner
 from exploration_planner import ExplorationPlanner
+from map_builder import MapBuilder
 
 PRINT_TIMING_EVERY_N_SECONDS = 1.0
 
@@ -322,11 +323,6 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             yaw, roll, pitch = quaternion_to_euler(orientation[0], orientation[1], orientation[2], orientation[3])
             self.visualizer._visualize_drone(drone_pos, yaw)
 
-            self.map_builder.update_explored_area(drone_pos[0[0]], drone_pos[0][1], yaw)
-            for x in len(self.map_builder.explored_area):
-                for y in len(self.map_builder.explored_area):
-                        if self.map_builder.explored_area[x][y] == 1
-                            points_array.append([x, y, 2])
             traversible = np.ones(
                 (
                     self.map_size,
@@ -348,9 +344,8 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
                         for j in range(max(y-1,0),min(y+2, self.map_size)):
                             traversible[i][j] = 0
                     long_term_grid[x][y] = 1
-                # temporary
-                #elif p[2] == 2: #explored, free space
-                #    long_term_grid[x][y] = 0
+                elif p[2] == 2: #explored, free space
+                    long_term_grid[x][y] = 0
             
             fmm_planner = FMMPlanner(traversible, 360 / 15)
 

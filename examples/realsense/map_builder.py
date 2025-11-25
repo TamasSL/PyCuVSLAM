@@ -23,8 +23,8 @@ class MapBuilder(object):
         self.params = params
         frame_width = params["frame_width"]
         frame_height = params["frame_height"]
-        hfov = params["hfov"]
-        self.camera_matrix = du.get_camera_matrix(frame_width, frame_height, hfov)
+        self.hfov = params["hfov"]
+        self.camera_matrix = du.get_camera_matrix(frame_width, frame_height, self.hfov)
         self.vision_range = params["vision_range"]
 
         self.map_size_cm = params["map_size_cm"]
@@ -36,21 +36,23 @@ class MapBuilder(object):
         self.visualize = params["visualize"]
         self.obs_threshold = params["obs_threshold"]
 
+        map_size = self.map_size_cm // self.resolution
         self.map = np.zeros(
             (
-                self.map_size_cm // self.resolution,
-                self.map_size_cm // self.resolution,
+                map_size,
+                map_size,
                 len(self.z_bins) + 1,
             ),
             dtype=np.float32,
         )
         self.explored_area = np.zeros(
             (
-                self.map_size_cm // self.resolution,
-                self.map_size_cm // self.resolution,
+                map_size,
+                map_size,
             ),
             dtype=np.uint8,
         )
+        self.grid = np.zeros((map_size, map_size), dtype=np.uint8)
 
         self.agent_height = params["agent_height"]
         self.agent_view_angle = params["agent_view_angle"]
@@ -70,22 +72,6 @@ class MapBuilder(object):
             point_cloud, self.agent_height, self.agent_view_angle
         )
 
-        shift_loc = [self.vision_range * self.resolution // 2, 0, np.pi / 2.0]
-        agent_view_centered = du.transform_pose(agent_view, shift_loc)
-
-        agent_view_flat = du.bin_points(
-            agent_view_centered, self.vision_range, self.z_bins, self.resolution
-        )
-
-        agent_view_cropped = agent_view_flat[:, :, 1]
-
-        agent_view_cropped = agent_view_cropped / self.obs_threshold
-        agent_view_cropped[agent_view_cropped >= 0.5] = 1.0
-        agent_view_cropped[agent_view_cropped < 0.5] = 0.0
-
-        agent_view_explored = agent_view_flat.sum(2)
-        agent_view_explored[agent_view_explored > 0] = 1.0
-
         current_pose[0] += self.map_size_cm / 2
         current_pose[1] += self.map_size_cm / 2
         geocentric_pc = du.transform_pose(agent_view, current_pose)
@@ -96,17 +82,19 @@ class MapBuilder(object):
 
         self.map = self.map + geocentric_flat
 
+        self._update_explored_area(current_pose[0], current_pose[1], current_pose[2])
+        # remove false past obstacles
+        for x in range(self.grid.shape[0]):
+            for y in range(self.grid.shape[1]):
+                if self.grid[x, y] == 1 and self.geocentric_flat[x, y, 1] < 0.5:
+                    for i in range(len(self.z_bins) + 1):
+                        self.map[x, y, i] = 0 # clear obstacle
+
         map_gt = self.map[:, :, 1] / self.obs_threshold
         map_gt[map_gt >= 0.5] = 1.0
         map_gt[map_gt < 0.5] = 0.0
-
-        explored_gt = self.map.sum(2)
-        explored_gt[explored_gt > 1] = 1.0
-
-        # remove false obstacles
-        map_gt[(explored_gt > 1) and (geocentric_flat < 0.5)] = 0
-
-        return agent_view_cropped, map_gt, agent_view_explored, explored_gt
+        
+        return map_gt, self.explored_area
 
 
     def reset_map(self, map_size: int):
@@ -122,7 +110,7 @@ class MapBuilder(object):
         )
 
 
-    def update_explored_area(x, y, yaw_rad):
+    def _update_explored_area(self, x, y, yaw_rad):
         """
         Calculate which grid cells are visible to the camera.
         
@@ -138,24 +126,23 @@ class MapBuilder(object):
         
         # Initialize grid (all unexplored)
         grid_size = self.map_size_cm // self.resolution
-        grid = np.zeros((grid_size, grid_size), dtype=np.uint8)
+        self.grid = np.zeros((grid_size, grid_size), dtype=np.uint8)
         
         # Check if drone is within grid bounds
         if not (0 <= x < grid_size and 0 <= y < grid_size):
-            return grid
+            return
         
         # Calculate FOV boundaries
         fov_rad = np.deg2rad(self.hfov)
         half_fov = fov_rad / 2
         
         # Iterate through all grid cells within max range
-        for row in range(max(0, x - vision_range), 
-                        min(grid_size, x + vision_range + 1)):
-            for col in range(max(0, y - vision_range), 
-                            min(grid_size, y + vision_range + 1)):
-                
-                dx = abs(row - x)
-                dy = abs(col - y)
+        for row in range(max(0, int(x) - self.vision_range), 
+                        min(grid_size, int(x) + self.vision_range + 1)):
+            for col in range(max(0, int(y) - self.vision_range), 
+                            min(grid_size, int(y) + self.vision_range + 1)):
+                dx = row - x
+                dy = col - y
                 distance = np.sqrt(dx**2 + dy**2)
                 
                 # Skip if too far
@@ -163,14 +150,12 @@ class MapBuilder(object):
                     continue
                 
                 # Angle to cell
-                angle_to_cell = np.arctan2(dx, dy)  # Note: atan2(x, y) for our convention
+                angle_to_cell = np.arctan2(-dx, dy)  # Note: atan2(x, y) for our convention
                 
                 # Normalize angle difference to [-π, π]
                 angle_diff = angle_to_cell - yaw_rad
-                angle_diff = np.arctan2(np.sin(angle_diff), np.cos(angle_diff))
                 
                 # Check if within FOV
                 if abs(angle_diff) <= half_fov:
-                    grid[row, col] = 1
-        
+                    self.grid[row, col] = 1
         self.explored_area += self.grid

@@ -277,7 +277,7 @@ async def main() -> int:
                     )
                     yaw, roll, pitch = quaternion_to_euler(odom_pose.rotation[0], odom_pose.rotation[1], odom_pose.rotation[2], odom_pose.rotation[3])
 
-                    agent_view_cropped, map_gt, agent_view_explored, explored_gt = map_builder.update_map(images[1] * np.float32(depth_scale) * 100, [odom_pose.translation[2] * 100, -odom_pose.translation[0] * 100, -yaw])
+                    map_gt, explored_gt = map_builder.update_map(images[1] * np.float32(depth_scale) * 100, [odom_pose.translation[2] * 100, -odom_pose.translation[0] * 100, -yaw])
 
                     H, W = map_gt.shape
                     points = []
