@@ -358,7 +358,7 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             #if target is None:
             #    print("✅ Exploration complete!")
 
-            ltg = [90, 9] # lt_target or [80, 80]
+            ltg = lt_target or [80, 80]  # [90, 9]
             reachable = fmm_planner.set_goal((ltg[0], ltg[1]))
             if self.initial_plan:
                 self.stg_x_gt, self.stg_y_gt, replan = fmm_planner.get_short_term_goal(drone_pos[0])

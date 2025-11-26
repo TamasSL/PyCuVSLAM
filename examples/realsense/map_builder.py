@@ -82,13 +82,12 @@ class MapBuilder(object):
 
         self.map = self.map + geocentric_flat
 
-        self._update_explored_area(current_pose[0], current_pose[1], current_pose[2])
+        self._update_explored_area(current_pose[0] / 10, current_pose[1] / 10, -current_pose[2])
         # remove false past obstacles
         for x in range(self.grid.shape[0]):
             for y in range(self.grid.shape[1]):
-                if self.grid[x, y] == 1 and self.geocentric_flat[x, y, 1] < 0.5:
-                    for i in range(len(self.z_bins) + 1):
-                        self.map[x, y, i] = 0 # clear obstacle
+                if self.grid[x, y] == 1 and geocentric_flat[x, y, 1] < 0.5:
+                    self.map[x, y, 1] = 0 # clear obstacle
 
         map_gt = self.map[:, :, 1] / self.obs_threshold
         map_gt[map_gt >= 0.5] = 1.0
@@ -133,7 +132,7 @@ class MapBuilder(object):
             return
         
         # Calculate FOV boundaries
-        fov_rad = np.deg2rad(self.hfov)
+        fov_rad = np.deg2rad(self.hfov - 20)  # subtract 20 degrees, it's worst to overestimate the explored area
         half_fov = fov_rad / 2
         
         # Iterate through all grid cells within max range

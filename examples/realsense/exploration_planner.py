@@ -10,7 +10,7 @@ Returns:
 """
 
 import numpy as np
-from scipy.ndimage import binary_dilation, label
+from scipy.ndimage import binary_dilation, label, generate_binary_structure
 import heapq
 
 
@@ -64,8 +64,8 @@ class ExplorationPlanner:
             centroid = np.mean(cluster, axis=0).astype(int)
             
             # Check if reachable
-            if not self._is_reachable(occupancy_grid, drone_pos_grid, centroid):
-                continue
+            #if not self._is_reachable(occupancy_grid, drone_pos_grid, centroid):
+            #    continue
             
             # Calculate distance
             distance = np.linalg.norm(np.array(drone_pos_grid) - centroid)
@@ -82,7 +82,7 @@ class ExplorationPlanner:
             w_info = 1.0    # Weight for information gain
             w_dist = 0.5    # Weight for distance (negative = prefer closer)
             
-            score = w_info * information_gain - w_dist * distance
+            score = w_info * information_gain + w_dist * distance
             
             if score > best_score:
                 best_score = score
@@ -102,7 +102,8 @@ class ExplorationPlanner:
         unknown_mask = (occupancy_grid == -1)
         
         # Dilate unknown regions to find borders
-        unknown_dilated = binary_dilation(unknown_mask, iterations=1)
+        structure = generate_binary_structure(2, 2)  # 2D, full connectivity
+        unknown_dilated = binary_dilation(unknown_mask, iterations=1, structure=structure)
         
         # Frontiers are free cells adjacent to unknown
         frontier_mask = free_mask & unknown_dilated

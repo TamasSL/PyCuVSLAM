@@ -285,7 +285,7 @@ async def main() -> int:
                         for j in range (0,W):
                             if map_gt[i][j] == 1:
                                 points.append([i, j, 1])  # obstacle
-                            if explored_gt[i][j] ==1:
+                            elif explored_gt[i][j] >= 1:
                                 points.append([i, j, 2])  # explored
 
                     # await send_vision_position(drone, x_ned, y_ned, z_ned, orientation, yaw, roll, pitch)
