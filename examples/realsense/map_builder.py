@@ -82,16 +82,16 @@ class MapBuilder(object):
 
         self.map = self.map + geocentric_flat
 
-        self._update_explored_area(current_pose[0] / 10, current_pose[1] / 10, -current_pose[2])
+        map_gt = self.map[:, :, 1] / self.obs_threshold
+        map_gt[map_gt >= 0.5] = 1.0
+        map_gt[map_gt < 0.5] = 0.0
+
+        self._update_explored_area(current_pose[1] / 10, current_pose[0] / 10, -current_pose[2], self.map)
         # remove false past obstacles
         for x in range(self.grid.shape[0]):
             for y in range(self.grid.shape[1]):
                 if self.grid[x, y] == 1 and geocentric_flat[x, y, 1] < 0.5:
                     self.map[x, y, 1] = 0 # clear obstacle
-
-        map_gt = self.map[:, :, 1] / self.obs_threshold
-        map_gt[map_gt >= 0.5] = 1.0
-        map_gt[map_gt < 0.5] = 0.0
         
         return map_gt, self.explored_area
 
@@ -109,7 +109,7 @@ class MapBuilder(object):
         )
 
 
-    def _update_explored_area(self, x, y, yaw_rad):
+    def _update_explored_area(self, x, y, yaw_rad, obstacle_map):
         """
         Calculate which grid cells are visible to the camera.
         
@@ -156,5 +156,61 @@ class MapBuilder(object):
                 
                 # Check if within FOV
                 if abs(angle_diff) <= half_fov:
-                    self.grid[row, col] = 1
+                    if self._has_line_of_sight(x, y, row, col, obstacle_map):
+                        self.grid[row, col] = 1
+
         self.explored_area += self.grid
+
+    def _has_line_of_sight(self, x0, y0, x1, y1, obstacle_map):
+        """
+        Bresenham's line algorithm for line of sight check.
+        """
+        x0, y0, x1, y1 = int(x0), int(y0), int(x1), int(y1)
+        
+        # Get points along the line
+        points = self._bresenham_line(x0, y0, x1, y1)
+        
+        # Check if any point (except the last) is an obstacle
+        for i, (px, py) in enumerate(points[:-1]):  # Exclude target cell
+            if obstacle_map[px, py] == 1:
+                return False
+        
+        return True
+
+
+    def _bresenham_line(self, x0, y0, x1, y1):
+        """
+        Generate points along a line using Bresenham's algorithm.
+        
+        Returns:
+            List of (x, y) tuples along the line
+        """
+        points = []
+        
+        dx = abs(x1 - x0)
+        dy = abs(y1 - y0)
+        
+        sx = 1 if x0 < x1 else -1
+        sy = 1 if y0 < y1 else -1
+        
+        err = dx - dy
+        
+        x, y = x0, y0
+        
+        while True:
+            points.append((x, y))
+            
+            if x == x1 and y == y1:
+                break
+            
+            e2 = 2 * err
+            
+            if e2 > -dy:
+                err -= dy
+                x += sx
+            
+            if e2 < dx:
+                err += dx
+                y += sy
+        
+        return points
