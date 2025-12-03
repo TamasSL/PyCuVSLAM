@@ -102,14 +102,29 @@ class RerunVisualizer:
             explored, radii=0.5, colors=[128, 128, 128]
         ))
 
+    def visualize_frontier_clusters(self, clusters):
+        for index in range(10):
+            rr.log(f'world/camera_0/clusters_{index}', rr.Points2D(
+                    [], radii=0.5, colors=[(index*20 + 55) % 255, (index*30) % 255, (index*40 + 75) % 255], draw_order=50
+                ))
+
+        # print(f'num clusters: {len(clusters)}')
+        for index, cluster in enumerate(clusters):
+            points = []
+            for row, col in cluster:
+                points.append([row, col])
+            rr.log(f'world/camera_0/clusters_{index}', rr.Points2D(
+                points, radii=0.5, colors=[(index*20 + 55) % 255, (index*30) % 255, (index*40 + 75) % 255], draw_order=50
+            ))
+
     def _visualize_goal(self, goal):
         rr.log('world/camera_0/ltg', rr.Points2D(
-            goal, radii=0.5, colors=[0, 0, 255]
+            goal, radii=0.5, colors=[0, 0, 255], draw_order=150
         ))
 
     def _visualize_stg(self, goal):
         rr.log('world/camera_0/stg', rr.Points2D(
-            goal, radii=0.5, colors=[255, 165, 0]
+            goal, radii=0.5, colors=[255, 165, 0],  draw_order=80
         ))
 
     def _visualize_drone(self, drone_uv, yaw_rad):

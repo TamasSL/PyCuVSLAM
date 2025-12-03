@@ -9,12 +9,12 @@ params = dict(
     vision_range=20,
     map_size_cm=1600,
     resolution=10,
-    agent_min_z=80,
+    agent_min_z=70,
     agent_max_z=100,
     du_scale = 2,
     visualize=True,
     obs_threshold=1.3,
-    agent_height=60,
+    agent_height=50,
     agent_view_angle=0
 )
 
@@ -52,14 +52,13 @@ class MapBuilder(object):
             ),
             dtype=np.uint8,
         )
-        self.grid = np.zeros((map_size, map_size), dtype=np.uint8)
+        self.current_field_of_view = np.zeros((map_size, map_size), dtype=np.uint8)
 
         self.agent_height = params["agent_height"]
         self.agent_view_angle = params["agent_view_angle"]
         return
 
     def update_map(self, depth: np.ndarray, current_pose: (float, float, float)):
-        # print(depth[320][240])
         with np.errstate(invalid="ignore"):
             depth[depth > self.vision_range * self.resolution] = (
                 np.nan
@@ -82,50 +81,41 @@ class MapBuilder(object):
 
         self.map = self.map + geocentric_flat
 
-        map_gt = self.map[:, :, 1] / self.obs_threshold
-        map_gt[map_gt >= 0.5] = 1.0
-        map_gt[map_gt < 0.5] = 0.0
+        map_level = self.map[:, :, 1] / self.obs_threshold
+        map_level[map_level >= 0.5] = 1.0
+        map_level[map_level < 0.5] = 0.0
 
-        self._update_explored_area(current_pose[1] / 10, current_pose[0] / 10, -current_pose[2], self.map)
+        map_above = self.map[:, :, 2] / self.obs_threshold
+        map_above[map_above >= 0.5] = 1.0
+        map_above[map_above < 0.5] = 0.0
+
+        map_below = self.map[:, :, 0] / self.obs_threshold
+        map_below[map_below >= 0.5] = 1.0
+        map_below[map_below < 0.5] = 0.0
+
+        self._update_explored_area(current_pose[1] / 10, current_pose[0] / 10, -current_pose[2])
         # remove false past obstacles
-        for x in range(self.grid.shape[0]):
-            for y in range(self.grid.shape[1]):
-                if self.grid[x, y] == 1 and geocentric_flat[x, y, 1] < 0.5:
-                    self.map[x, y, 1] = 0 # clear obstacle
+        for x in range(self.current_field_of_view.shape[0]):
+            for y in range(self.current_field_of_view.shape[1]):
+                for i in range(len(self.z_bins) + 1):
+                    if self.current_field_of_view[x, y] == 1 and geocentric_flat[x, y, i] < 0.5:
+                        # coordinate x,y is in view and has no obstacle
+                        self.map[x, y, i] = 0 # clear obstacle
         
-        return map_gt, self.explored_area
+        return map_level, map_above, map_below, self.explored_area
 
 
-    def reset_map(self, map_size: int):
-        self.map_size_cm = map_size
-
-        self.map = np.zeros(
-            (
-                self.map_size_cm // self.resolution,
-                self.map_size_cm // self.resolution,
-                len(self.z_bins) + 1,
-            ),
-            dtype=np.float32,
-        )
-
-
-    def _update_explored_area(self, x, y, yaw_rad, obstacle_map):
+    def _update_explored_area(self, x, y, yaw_rad):
         """
-        Calculate which grid cells are visible to the camera.
-        
         Args:
             x, y: camera's position as grid coordinates
             yaw_rad: camera's orientation
-        
-        Returns:
-            grid: numpy array of shape (grid_size, grid_size)
-                0 = not visible
-                1 = visible to camera
         """
         
         # Initialize grid (all unexplored)
         grid_size = self.map_size_cm // self.resolution
-        self.grid = np.zeros((grid_size, grid_size), dtype=np.uint8)
+        del self.current_field_of_view
+        self.current_field_of_view = np.zeros((grid_size, grid_size), dtype=np.uint8)
         
         # Check if drone is within grid bounds
         if not (0 <= x < grid_size and 0 <= y < grid_size):
@@ -149,19 +139,19 @@ class MapBuilder(object):
                     continue
                 
                 # Angle to cell
-                angle_to_cell = np.arctan2(-dx, dy)  # Note: atan2(x, y) for our convention
+                angle_to_cell = np.arctan2(-dx, dy)
                 
                 # Normalize angle difference to [-π, π]
                 angle_diff = angle_to_cell - yaw_rad
                 
                 # Check if within FOV
                 if abs(angle_diff) <= half_fov:
-                    if self._has_line_of_sight(x, y, row, col, obstacle_map):
-                        self.grid[row, col] = 1
+                    if self._has_line_of_sight(x, y, row, col):
+                        self.current_field_of_view[row, col] = 1
 
-        self.explored_area += self.grid
+        self.explored_area += self.current_field_of_view
 
-    def _has_line_of_sight(self, x0, y0, x1, y1, obstacle_map):
+    def _has_line_of_sight(self, x0, y0, x1, y1):
         """
         Bresenham's line algorithm for line of sight check.
         """
@@ -172,9 +162,10 @@ class MapBuilder(object):
         
         # Check if any point (except the last) is an obstacle
         for i, (px, py) in enumerate(points[:-1]):  # Exclude target cell
-            if obstacle_map[px, py] == 1:
+            if self.map[px, py] == 1:
                 return False
         
+        del points
         return True
 
 

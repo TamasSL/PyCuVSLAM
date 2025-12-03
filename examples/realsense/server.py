@@ -73,6 +73,10 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
         self.last_print_time = time.time()
         self._initialize_intrinsics()
 
+        # Visualize in rerun
+        self.visualizer = RerunVisualizer()
+        self.last_position = None
+
         self.map_size = 160   # the 2d map is of size map_size x map_size where each element represents a 10x10cm square
         self.stg_x_gt = 0
         self.stg_y_gt = 0
@@ -80,7 +84,7 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
         self.stg_y_ned = 0
         self.stg_relative_angle = 0
         self.initial_plan = True
-        self.long_term_goal_planner = ExplorationPlanner(grid_resolution=0.1, safety_distance=0.3)
+        self.long_term_goal_planner = ExplorationPlanner(grid_resolution=0.1, safety_distance=0.3, visualizer=self.visualizer)
         self.frame_id = 0
         self.save_frames_to_disk = False
 
@@ -97,10 +101,6 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
                             mapper_parameters=mapper_params)
 
         self.map_builder = MapBuilder()
-
-        # Visualize in rerun
-        self.visualizer = RerunVisualizer()
-        self.last_position = None
         
         print("Server initialized")
 
@@ -338,7 +338,7 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             for p in points_array:
                 x = p[0]
                 y = p[1]
-                if p[2] == 1: # obstacle
+                if p[2] == 1: # obstacle at current level
                     traversible[x][y] = 0
                     for i in range(max(x-1,0),min(x+2, self.map_size)):
                         for j in range(max(y-1,0),min(y+2, self.map_size)):
@@ -347,7 +347,7 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
                 elif p[2] == 2: #explored, free space
                     long_term_grid[x][y] = 0
             
-            fmm_planner = FMMPlanner(traversible, 360 / 15)
+            fmm_planner = FMMPlanner(traversible, None, None)
 
             lt_target = self.long_term_goal_planner.get_next_exploration_target(
                 long_term_grid, 
@@ -358,14 +358,15 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             #if target is None:
             #    print("✅ Exploration complete!")
 
-            ltg = lt_target or [80, 80]  # [90, 9]
-            reachable = fmm_planner.set_goal((ltg[0], ltg[1]))
+            ltg = [80, 100] # lt_target or [80, 80]
+            reachable = fmm_planner.set_goal((ltg[1], ltg[0]))
             if self.initial_plan:
                 self.stg_x_gt, self.stg_y_gt, replan = fmm_planner.get_short_term_goal(drone_pos[0])
                 self.initial_plan = False
             elif ((abs(drone_pos[0][0] - self.stg_x_gt) < 3) and (abs(drone_pos[0][1] - self.stg_y_gt) < 3)):
                 self.stg_x_gt, self.stg_y_gt, replan = fmm_planner.get_short_term_goal([self.stg_x_gt, self.stg_y_gt])
-            self.visualizer._visualize_goal([[ltg[1], ltg[0]]])
+                print(f"replan: {self.stg_x_gt} {self.stg_y_gt} {replan}")
+            self.visualizer._visualize_goal([[ltg[0], ltg[1]]])
             self.visualizer._visualize_map(points_array)
 
             angle_st_goal = math.degrees(
@@ -426,7 +427,7 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
 async def manual_control(servicer):
         """Example: Send commands from server keyboard"""
         while True:
-            print("\nCommands: a=arm, t=takeoff, l=land, f=forward, c=left, v=right")
+            print("\nCommands: a=arm, t=takeoff, l=land, f=follow once, c=follow continously, v=unfollow, r=record 3d mesh, s=start saving RGB/depth frames, d=stop saving frames, q=quit")
             cmd = await asyncio.to_thread(input, "Command: ")
             
             if cmd == 'a':
@@ -443,15 +444,15 @@ async def manual_control(servicer):
                 )
             elif cmd == 'f':
                 await servicer.send_command_to_drone(
-                    sensor_stream_pb2.DroneCommand.FORWARD
+                    sensor_stream_pb2.DroneCommand.FOLLOW_ONCE
                 )
             elif cmd == 'c':
                 await servicer.send_command_to_drone(
-                    sensor_stream_pb2.DroneCommand.LEFT
+                    sensor_stream_pb2.DroneCommand.FOLLOW
                 )
             elif cmd == 'v':
                 await servicer.send_command_to_drone(
-                    sensor_stream_pb2.DroneCommand.RIGHT
+                    sensor_stream_pb2.DroneCommand.UNFOLLOW
                 )
             
             elif cmd == 'r':

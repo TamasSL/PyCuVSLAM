@@ -6,53 +6,13 @@ import skfmm
 from numpy import ma
 
 
-def get_mask(sx: float, sy: float) -> np.ndarray:
-    """Create a mask for valid step locations.
-
-    Args:
-        sx: X-axis subpixel offset from grid center
-        sy: Y-axis subpixel offset from grid center
-
-    Returns:
-        Binary mask where 1 indicates locations within step_size radius
-    """
+def get_dist() -> np.ndarray:
     size = 3
-    mask = np.zeros((size, size))
-    center = size // 2
-
-    for i in range(size):   # this can be simplified the the neihboring cells from the current location
-        for j in range(size):
-            dist_sq = ((i + 0.5) - (center + sx)) ** 2 + (
-                (j + 0.5) - (center + sy)
-            ) ** 2
-            if dist_sq <= 1:
-                mask[i, j] = 1
-    return mask
-
-
-def get_dist(sx: float, sy: float) -> np.ndarray:
-    """Compute distance weights for locations within step radius.
-
-    Args:
-        sx: X-axis subpixel offset from grid center
-        sy: Y-axis subpixel offset from grid center
-
-    Returns:
-        Distance matrix with minimum value of 5 for locations within step_size radius,
-        1e-10 elsewhere
-    """
-    size = 3
-    dist_matrix = np.full((size, size), 1e-10)
-    center = size // 2
-
-    for i in range(size):
-        for j in range(size):
-            dist_sq = ((i + 0.5) - (center + sx)) ** 2 + (
-                (j + 0.5) - (center + sy)
-            ) ** 2
-            if dist_sq <= 1:
-                dist_matrix[i, j] = max(5.0, dist_sq**0.5)
-    return dist_matrix
+    center = 1
+    y_indices, x_indices = np.meshgrid(
+        np.arange(size) - center, np.arange(size) - center, indexing='ij'
+    )
+    return np.sqrt(y_indices**2 + x_indices**2)
 
 
 class FMMPlanner:
@@ -68,47 +28,52 @@ class FMMPlanner:
     def __init__(
         self,
         traversible: np.ndarray,
-        num_rots: int,
+        traversible_above: np.ndarray,
+        traversible_below: np.ndarray,
         version: Literal["classic", "fm2"] = "fm2",
     ):
         """Initialize the FMM planner.
 
         Args:
             traversible: Binary traversability map (1=traversible, 0=obstacle)
-            num_rots: Number of discrete rotation angles for the agent
             version: Planning version - "classic" for standard FMM, "fm2" for Fast Marching Square
         """
 
         self.traversible = traversible
+        self.traversible_below = traversible_below
+        self.traversible_above = traversible_above
 
-        self.angle_value = [0, 2.0 * np.pi / num_rots, -2.0 * np.pi / num_rots, 0]
         self.du = 1
-        self.num_rots = num_rots
         self.version = version
         self.fmm_dist = None
+        self.fmm_dist_above = None
+        self.fmm_dist_below = None
         self.velocity_map = None
-        self.viz_dict = {}
+        self.velocity_map_above = None
+        self.velocity_map_below = None
 
         # Precompute velocity map for FM² (version 2)
         if self.version == "fm2":
-            self._compute_velocity_map()
+            self.velocity_map = self._compute_velocity_map(self.traversible)
+            if self.traversible_above:
+                self.velocity_map_above = self._compute_velocity_map(self.traversible_above)
+                self.velocity_map_below = self._compute_velocity_map(self.traversible_below)
 
-    def _compute_velocity_map(self) -> None:
+    def _compute_velocity_map(self, traversible: np.ndarray) -> None:
         """Compute velocity map for Fast Marching Square (FM²).
 
         The velocity at each point is proportional to its distance from the nearest
         obstacle. This encourages paths to stay in open spaces (safer and smoother).
         """
         # Check if there are any obstacles
-        if np.all(self.traversible == 1):
+        if np.all(traversible == 1):
             # No obstacles - uniform velocity
-            self.velocity_map = np.ones_like(self.traversible, dtype=float)
-            self.viz_dict["velocity_map"] = self.velocity_map.copy()
+            velocity_map = np.ones_like(traversible, dtype=float)
             return
 
         # Create signed distance function for FMM
         # Obstacles (traversible=0) should be negative, free space (traversible=1) positive
-        phi = np.where(self.traversible == 0, -1.0, 1.0)
+        phi = np.where(traversible == 0, -1.0, 1.0)
 
         # Compute signed distance from obstacle boundaries
         # This gives positive distance in free space, negative inside obstacles
@@ -116,30 +81,29 @@ class FMMPlanner:
             dist_to_obstacles = skfmm.distance(phi, dx=1)
         except ValueError:
             # Fallback: uniform velocity if distance computation fails
-            self.velocity_map = np.ones_like(self.traversible, dtype=float)
-            self.velocity_map[self.traversible == 0] = 1e-6
-            self.viz_dict["velocity_map"] = self.velocity_map.copy()
+            print("velocity computation failed")
+            velocity_map = np.ones_like(traversible, dtype=float)
+            velocity_map[traversible == 0] = 1e-6
             return
 
         # Take absolute value and ensure free space has positive distances
         dist_to_obstacles = np.abs(dist_to_obstacles)
-        dist_to_obstacles[self.traversible == 1] = np.abs(
-            dist_to_obstacles[self.traversible == 1]
+        dist_to_obstacles[traversible == 1] = np.abs(
+            dist_to_obstacles[traversible == 1]
         )
 
         # Velocity is proportional to distance from obstacles
         # Normalize to [0.1, 1.0] range to avoid zero velocities
-        max_dist = np.max(dist_to_obstacles[self.traversible == 1])
+        max_dist = np.max(dist_to_obstacles[traversible == 1])
         if max_dist > 0:
-            self.velocity_map = 0.1 + 0.9 * (dist_to_obstacles / max_dist)
+            velocity_map = 0.1 + 0.9 * (dist_to_obstacles / max_dist)
         else:
-            self.velocity_map = np.ones_like(self.traversible, dtype=float)
+            velocity_map = np.ones_like(traversible, dtype=float)
+            print("max_dist negative")
 
         # Set velocity to near-zero at obstacles
-        self.velocity_map[self.traversible == 0] = 1e-6
-
-        # Store for visualization
-        self.viz_dict["velocity_map"] = self.velocity_map.copy()
+        velocity_map[traversible == 0] = 1e-6
+        return velocity_map
 
     def set_goal(self, goal: tuple[float, float]) -> np.ndarray:
         """Set the goal location and compute FMM distance field.
@@ -156,26 +120,54 @@ class FMMPlanner:
         """
         # Create masked array where 0 = non-traversible
         traversible_ma = ma.masked_values(self.traversible, 0)
-
         goal_x = int(goal[0])
         goal_y = int(goal[1])
         traversible_ma[goal_y, goal_x] = 0
 
+        if self.traversible_above:
+            traversible_above_ma = ma.masked_values(self.traversible_above, 0)
+            traversible_above_ma[goal_y, goal_x] = 0
+        if self.traversible_below:
+            traversible_below_ma = ma.masked_values(self.traversible_below, 0)
+            traversible_below_ma[goal_y, goal_x] = 0
+
         if self.version == "fm2" and self.velocity_map is not None:
             # FM^2: Use velocity map (paths prefer high-velocity/open areas)
             dd = skfmm.travel_time(traversible_ma, speed=self.velocity_map, dx=1)
+            if self.traversible_above:
+                dd_above = skfmm.travel_time(traversible_above_ma, speed=self.velocity_map_above, dx=1)
+            if self.traversible_below:
+                dd_above = skfmm.travel_time(traversible_below_ma, speed=self.velocity_map_below, dx=1)
         else:
             # Standard FMM: Uniform speed
             dd = skfmm.distance(traversible_ma, dx=1)
 
-        dd_mask = np.invert(np.isnan(ma.filled(dd, np.nan)))
+        # Compute Euclidean distance to goal
+        height, width = self.traversible.shape
+        y_coords, x_coords = np.meshgrid(
+            np.arange(height), 
+            np.arange(width), 
+            indexing='ij'
+        )
+        euclidean_dist = np.sqrt((x_coords - goal_x)**2 + (y_coords - goal_y)**2)
+    
+        # Combine FMM distance with small Euclidean bias
+        # The weight (0.01) should be tuned based on your map scale
+        euclidean_weight = 0.001  # Adjust this value
+        dd = dd + euclidean_weight * euclidean_dist
         dd = ma.filled(dd, np.max(dd) + 1)
         self.fmm_dist = dd
+        if self.traversible_above:
+            dd_above = dd_above + euclidean_weight * euclidean_dist
+            dd_above = ma.filled(dd_above, np.max(dd) + 1)
+            self.fmm_dist_above = dd_above
+        if self.traversible_below:
+            dd_below = dd_below + euclidean_weight * euclidean_dist
+            dd_below = ma.filled(dd_below, np.max(dd) + 1)
+            self.fmm_dist_below = dd_below
 
-        self.viz_dict["map"] = dd.copy()
-        self.viz_dict["goal"] = (goal_y, goal_x)
-
-        return dd_mask
+        #dd_mask = np.invert(np.isnan(ma.filled(dd, np.nan)))
+        return None
 
     def _extract_local_window(
         self, array: np.ndarray, center: list[int], window_size: int
@@ -284,45 +276,28 @@ class FMMPlanner:
 
         return np.array(path)
 
-    def get_short_term_goal(self, state: list[int]) -> tuple[float, float, bool]:
-        """Compute the next short-term goal toward the long-term goal.
-
-        This method uses Fast Marching Method to find the locally optimal next
-        step that makes progress toward the goal while respecting traversibility
-        constraints and avoiding local minima. Prefers forward moves over rotations.
-
-        Args:
-            state: Current agent state [x, y, orientation] in pixels
-
-        Returns:
-            Tuple of (stg_x, stg_y, replan) where:
-                - stg_x: Short-term goal x coordinate
-                - stg_y: Short-term goal y coordinate
-                - replan: Whether replanning is needed (goal unreachable)
-        """
-        # Convert to scaled coordinates and extract subpixel offsets
+    def _get_normalized_cost(self, state: list[int], fmm_dist, traversible):
         state_scaled = state
-        subpixel_dx = state_scaled[0] - int(state_scaled[0])
-        subpixel_dy = state_scaled[1] - int(state_scaled[1])
         state_int = [int(x) for x in state_scaled]
 
-        self.viz_dict["start"] = state_int
-        self.viz_dict["path"] = self._compute_path(
-            self.viz_dict["start"], self.viz_dict["goal"]
-        )
-
         # Create masks for valid reachable locations
-        step_mask = get_mask(subpixel_dx, subpixel_dy)
-        distance_weights = get_dist(subpixel_dx, subpixel_dy)
+        padded_traversible = np.pad(
+            traversible, self.du, "constant", constant_values=0
+        )
+        local_traversible = self._extract_local_window(
+            padded_traversible, state_int, self.du
+        )
+        step_mask = local_traversible.astype(np.float32)
+        distance_weights = get_dist()
 
         # Extract local region of global FMM distance field
-        pad_value = self.fmm_dist.shape[0] ** 2
+        pad_value = fmm_dist.shape[0] ** 2
 
         # For FM2, apply light smoothing to reduce noise from velocity field
-        fmm_for_planning = self.fmm_dist
+        fmm_for_planning = fmm_dist
         if self.version == "fm2":
             from scipy.ndimage import gaussian_filter
-            fmm_for_planning = gaussian_filter(self.fmm_dist, sigma=1.0)
+            fmm_for_planning = gaussian_filter(fmm_dist, sigma=1.0)
 
         padded_fmm = np.pad(
             fmm_for_planning, self.du, "constant", constant_values=pad_value
@@ -335,28 +310,30 @@ class FMMPlanner:
             f"Planning error: unexpected local window shape {local_fmm_dist.shape}, "
             f"expected ({expected_size}, {expected_size})"
         )
-
+        print("step mask")
+        print(step_mask)
+        print("local_fmm_dist")
+        print(local_fmm_dist)
         # Compute relative cost: distance to goal from each location
         relative_cost = local_fmm_dist * step_mask
         relative_cost += (1 - step_mask) * pad_value  # Penalize unreachable locations
         relative_cost -= relative_cost[
             self.du, self.du
         ]  # Make relative to current position
-
+        print("relative cost pre-gaussian")
+        print(relative_cost)
         # Adjust gradient filtering threshold for FM2
         gradient_threshold = -1.5 if self.version == "classic" else -2.5
-        relative_cost = self._apply_gradient_filter(
-            relative_cost, distance_weights, threshold=gradient_threshold
-        )
+        #relative_cost = self._apply_gradient_filter(
+        #    relative_cost, distance_weights, threshold=gradient_threshold
+        #)
+        print("relative cost post-gassian")
+        print(relative_cost)
 
         # Compute local FMM distance to avoid local minima
-        padded_traversible = np.pad(
-            self.traversible, self.du, "constant", constant_values=0
-        )
-        local_traversible = self._extract_local_window(
-            padded_traversible, state_int, self.du
-        )
         local_distance = self._compute_local_fmm_distance(local_traversible)
+        print("local_distance")
+        print(local_distance)
 
         # Normalize cost by local distance to encourage exploration
         local_distance = np.maximum(local_distance, self._MIN_LOCAL_DIST)
@@ -365,6 +342,8 @@ class FMMPlanner:
             normalized_cost, np.ones_like(normalized_cost), threshold=gradient_threshold
         )
 
+        print("normalized cost")
+        print(normalized_cost)
         # Favor moves that make direct progress toward goal
         # Compute gradient direction from FMM field
         center = self.du
@@ -405,8 +384,42 @@ class FMMPlanner:
                 # Apply penalty for moves not aligned with goal (favor forward progress)
                 # Reduce penalty weight for FM2 to account for less direct paths
                 penalty_weight = 0.5 if self.version == "classic" else 0.2
-                alignment_penalty = (1.0 - alignment) * (distances > 0.5) * penalty_weight
+                alignment_penalty = (1.0 - alignment) * penalty_weight   # * (distances > 0.5)
+                alignment_penalty[self.du , self.du] += 10   # penalize staying at the same position
+                print("alignment penalty")
+                print(alignment_penalty)
                 normalized_cost = normalized_cost + alignment_penalty
+
+        return normalized_cost
+
+    def get_short_term_goal(self, state: list[int]) -> tuple[float, float, bool]:
+        """Compute the next short-term goal toward the long-term goal.
+
+        This method uses Fast Marching Method to find the locally optimal next
+        step that makes progress toward the goal while respecting traversibility
+        constraints and avoiding local minima. Prefers forward moves over rotations.
+
+        Args:
+            state: Current agent state [x, y, orientation] in coordinates
+
+        Returns:
+            Tuple of (stg_x, stg_y, replan) where:
+                - stg_x: Short-term goal x coordinate
+                - stg_y: Short-term goal y coordinate
+                - replan: Whether replanning is needed (goal unreachable)
+        """
+        state_scaled = state
+        state_int = [int(x) for x in state_scaled]
+
+        normalized_cost = self._get_normalized_cost(state, self.fmm_dist, self.traversible)
+        if self.traversible_above:
+            normalized_cost_above = self._get_normalized_cost(state, self.fmm_dist_above, self.traversible_above)
+        if self.traversible_below:
+            normalized_cost_below = self._get_normalized_cost(state, self.fmm_dist_below, self.traversible_below)
+        
+        if np.all(normalized_cost == 0):
+            print("stg planning undecided")
+            return state_int[0], state_int[1], True
 
         # Find location with minimum cost (steepest descent toward goal)
         min_idx = np.argmin(normalized_cost)
@@ -416,7 +429,7 @@ class FMMPlanner:
         replan = normalized_cost[local_goal_x, local_goal_y] > self._REPLAN_THRESHOLD
 
         # Convert back to original coordinate frame
-        goal_x = (local_goal_x + state_int[0] - self.du) + 0.5
-        goal_y = (local_goal_y + state_int[1] - self.du) + 0.5
+        goal_x = (local_goal_x + state_int[0] - self.du)
+        goal_y = (local_goal_y + state_int[1] - self.du)
 
         return goal_x, goal_y, replan

@@ -1,16 +1,5 @@
-#
-# Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-#
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
-#
 import time
 import asyncio
-
 import numpy as np
 import torch
 import cuvslam as vslam
@@ -29,7 +18,6 @@ from offboard_controller_subscriber import OffboardControllerSubscriber
 
 # pylint: disable=invalid-name
 
-PRINT_TIMING_EVERY_N_SECONDS = 1.0
 RESOLUTION = (640, 480)
 FPS = 30
 WARMUP_FRAMES = 60
@@ -65,14 +53,9 @@ async def send_vision_position(drone, x, y, z, quaternion, yaw, roll, pitch):
 
     vision_position = VisionPositionEstimate(
         time_usec=int(time.time() * 1e6),
-        #frame_id=Odometry.MavFrame.LOCAL_FRD,
         position_body=p,
-        #q=quaternion,
-        #speed_body=s,
-        #angular_velocity_body=av,
         angle_body=a,
         pose_covariance=pose_covariance,
-        #velocity_covariance=pose_covariance,
     )
     await drone.mocap.set_vision_position_estimate(vision_position)
 
@@ -105,13 +88,9 @@ def quaternion_to_euler(qx, qy, qz, qw):
 
 def transform_to_ned(x, y, z):
     """Transform cuVSLAM pose to PX4 NED frame"""
-    # Adjust this based on your actual cuVSLAM frame convention
     ned_x = z
     ned_y = x
     ned_z = y
-    
-    # Transform orientation similarly
-    # (May need quaternion transformation)
     
     return ned_x, ned_y, ned_z
 
@@ -277,16 +256,20 @@ async def main() -> int:
                     )
                     yaw, roll, pitch = quaternion_to_euler(odom_pose.rotation[0], odom_pose.rotation[1], odom_pose.rotation[2], odom_pose.rotation[3])
 
-                    map_gt, explored_gt = map_builder.update_map(images[1] * np.float32(depth_scale) * 100, [odom_pose.translation[2] * 100, -odom_pose.translation[0] * 100, -yaw])
+                    map_level, map_above, map_below, explored_gt = map_builder.update_map(images[1] * np.float32(depth_scale) * 100, [odom_pose.translation[2] * 100, -odom_pose.translation[0] * 100, -yaw])
 
-                    H, W = map_gt.shape
+                    H, W = map_level.shape
                     points = []
                     for i in range(0,H):
                         for j in range (0,W):
-                            if map_gt[i][j] == 1:
-                                points.append([i, j, 1])  # obstacle
+                            if map_level[i][j] == 1:
+                                points.append([i, j, 0])  # obstacle at current height level
                             elif explored_gt[i][j] >= 1:
                                 points.append([i, j, 2])  # explored
+                            if map_above[i][j] == 1:
+                                points.append([i, j, 1])  # obstacle at level above
+                            if map_below[i][j] == 1: 
+                                points.append([i, j, -1])  # obstacle at level below
 
                     # await send_vision_position(drone, x_ned, y_ned, z_ned, orientation, yaw, roll, pitch)
                     # await print_ned_coordinates(drone)
@@ -294,8 +277,6 @@ async def main() -> int:
                     publish_data = dict(
                         depth = images[1] * np.float32(depth_scale),
                         rgb = images[0],
-                        # left_infrared_image = frame['left_infrared_image'],
-                        # last_observation = cuvslam_tracker.get_last_observations(0),
                         position=odom_pose_estimate.world_from_rig.pose.translation,
                         quaternion=odom_pose_estimate.world_from_rig.pose.rotation,
                         points=points

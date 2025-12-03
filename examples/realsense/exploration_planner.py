@@ -15,7 +15,7 @@ import heapq
 
 
 class ExplorationPlanner:
-    def __init__(self, grid_resolution=0.05, safety_distance=0.3):
+    def __init__(self, grid_resolution=0.05, safety_distance=0.3, visualizer = None):
         """
         Args:
             grid_resolution: Meters per grid cell
@@ -23,8 +23,9 @@ class ExplorationPlanner:
         """
         self.grid_resolution = grid_resolution
         self.safety_margin = int(safety_distance / grid_resolution)
+        self.visualizer = visualizer
     
-    def get_next_exploration_target(self, occupancy_grid, drone_pos_grid, 
+    def get_next_exploration_target(self, occupancy_grid, current_target_pos, 
                                      max_distance=None):
         """
         Find next best exploration target using frontier-based exploration.
@@ -34,7 +35,7 @@ class ExplorationPlanner:
                            0 = free space
                            1 = occupied
                           -1 = unknown/unexplored
-            drone_pos_grid: (row, col) current position in grid coordinates
+            current_target_pos: (row, col) current target position in grid coordinates
             max_distance: Maximum distance to consider (in grid cells), None = unlimited
         
         Returns:
@@ -51,6 +52,7 @@ class ExplorationPlanner:
         
         # 2. Cluster frontiers into regions
         frontier_clusters = self._cluster_frontiers(frontiers, occupancy_grid.shape)
+        self.visualizer.visualize_frontier_clusters(frontier_clusters)
         
         # 3. Evaluate each frontier cluster
         best_target = None
@@ -62,17 +64,17 @@ class ExplorationPlanner:
             
             # Get centroid of frontier cluster
             centroid = np.mean(cluster, axis=0).astype(int)
+
+            diameter = self._get_cluster_diameter_approx(cluster)
+            if diameter < 4:
+                continue
             
-            # Check if reachable
-            #if not self._is_reachable(occupancy_grid, drone_pos_grid, centroid):
-            #    continue
-            
-            # Calculate distance
-            distance = np.linalg.norm(np.array(drone_pos_grid) - centroid)
+            # Calculate distance from current target
+            distance = np.linalg.norm(np.array(current_target_pos) - centroid)
             
             # Skip if too far
-            if max_distance and distance > max_distance:
-                continue
+            #if max_distance and distance > max_distance:
+            #    continue
             
             # Calculate score (larger frontiers closer to drone are better)
             frontier_size = len(cluster)
@@ -80,7 +82,7 @@ class ExplorationPlanner:
             
             # Score function: balance between information gain and distance
             w_info = 1.0    # Weight for information gain
-            w_dist = 0.5    # Weight for distance (negative = prefer closer)
+            w_dist = -1.0    # Weight for distance (negative = prefer closer)
             
             score = w_info * information_gain + w_dist * distance
             
@@ -89,6 +91,23 @@ class ExplorationPlanner:
                 best_target = tuple(centroid)
         
         return best_target
+
+    def _get_cluster_diameter_approx(self, cluster):
+        """
+        Approximate diameter using bounding box diagonal.
+        Fast but may overestimate.
+        """
+        if len(cluster) < 2:
+            return 0.0
+        
+        cluster = np.array(cluster)
+        
+        # Get bounding box
+        min_coords = cluster.min(axis=0)
+        max_coords = cluster.max(axis=0)
+        
+        # Diagonal of bounding box
+        return np.linalg.norm(max_coords - min_coords)
     
     def _find_frontiers(self, occupancy_grid):
         """

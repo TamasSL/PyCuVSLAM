@@ -52,9 +52,9 @@ message DroneCommand {
         ARM = 1;
         TAKEOFF = 3;
         LAND = 4;
-        FORWARD = 5;
-        LEFT = 6;
-        RIGHT = 7;
+        FOLLOW_ONCE = 5;
+        FOLLOW = 6;
+        UNFOLLOW = 7;
     }
     
     CommandType command = 1;
