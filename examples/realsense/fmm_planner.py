@@ -55,8 +55,9 @@ class FMMPlanner:
         # Precompute velocity map for FM² (version 2)
         if self.version == "fm2":
             self.velocity_map = self._compute_velocity_map(self.traversible)
-            if self.traversible_above:
+            if self.traversible_above is not None:
                 self.velocity_map_above = self._compute_velocity_map(self.traversible_above)
+            if self.traversible_below is not None:
                 self.velocity_map_below = self._compute_velocity_map(self.traversible_below)
 
     def _compute_velocity_map(self, traversible: np.ndarray) -> None:
@@ -124,20 +125,20 @@ class FMMPlanner:
         goal_y = int(goal[1])
         traversible_ma[goal_y, goal_x] = 0
 
-        if self.traversible_above:
+        if self.traversible_above is not None:
             traversible_above_ma = ma.masked_values(self.traversible_above, 0)
             traversible_above_ma[goal_y, goal_x] = 0
-        if self.traversible_below:
+        if self.traversible_below is not None:
             traversible_below_ma = ma.masked_values(self.traversible_below, 0)
             traversible_below_ma[goal_y, goal_x] = 0
 
         if self.version == "fm2" and self.velocity_map is not None:
             # FM^2: Use velocity map (paths prefer high-velocity/open areas)
             dd = skfmm.travel_time(traversible_ma, speed=self.velocity_map, dx=1)
-            if self.traversible_above:
+            if self.traversible_above is not None:
                 dd_above = skfmm.travel_time(traversible_above_ma, speed=self.velocity_map_above, dx=1)
-            if self.traversible_below:
-                dd_above = skfmm.travel_time(traversible_below_ma, speed=self.velocity_map_below, dx=1)
+            if self.traversible_below is not None:
+                dd_below = skfmm.travel_time(traversible_below_ma, speed=self.velocity_map_below, dx=1)
         else:
             # Standard FMM: Uniform speed
             dd = skfmm.distance(traversible_ma, dx=1)
@@ -153,17 +154,17 @@ class FMMPlanner:
     
         # Combine FMM distance with small Euclidean bias
         # The weight (0.01) should be tuned based on your map scale
-        euclidean_weight = 0.001  # Adjust this value
-        dd = dd + euclidean_weight * euclidean_dist
+        euclidean_weight = 0.0001  # Adjust this value
         dd = ma.filled(dd, np.max(dd) + 1)
+        dd = dd + euclidean_weight * euclidean_dist
         self.fmm_dist = dd
-        if self.traversible_above:
-            dd_above = dd_above + euclidean_weight * euclidean_dist
+        if self.traversible_above is not None:
             dd_above = ma.filled(dd_above, np.max(dd) + 1)
+            dd_above = dd_above + euclidean_weight * euclidean_dist
             self.fmm_dist_above = dd_above
-        if self.traversible_below:
-            dd_below = dd_below + euclidean_weight * euclidean_dist
+        if self.traversible_below is not None:
             dd_below = ma.filled(dd_below, np.max(dd) + 1)
+            dd_below = dd_below + euclidean_weight * euclidean_dist
             self.fmm_dist_below = dd_below
 
         #dd_mask = np.invert(np.isnan(ma.filled(dd, np.nan)))
@@ -310,40 +311,28 @@ class FMMPlanner:
             f"Planning error: unexpected local window shape {local_fmm_dist.shape}, "
             f"expected ({expected_size}, {expected_size})"
         )
-        print("step mask")
-        print(step_mask)
-        print("local_fmm_dist")
-        print(local_fmm_dist)
         # Compute relative cost: distance to goal from each location
         relative_cost = local_fmm_dist * step_mask
         relative_cost += (1 - step_mask) * pad_value  # Penalize unreachable locations
         relative_cost -= relative_cost[
             self.du, self.du
         ]  # Make relative to current position
-        print("relative cost pre-gaussian")
-        print(relative_cost)
         # Adjust gradient filtering threshold for FM2
-        gradient_threshold = -1.5 if self.version == "classic" else -2.5
-        #relative_cost = self._apply_gradient_filter(
-        #    relative_cost, distance_weights, threshold=gradient_threshold
-        #)
-        print("relative cost post-gassian")
-        print(relative_cost)
+        gradient_threshold = -1.5 if self.version == "classic" else -10
+        relative_cost = self._apply_gradient_filter(
+            relative_cost, distance_weights, threshold=gradient_threshold
+        )
 
         # Compute local FMM distance to avoid local minima
         local_distance = self._compute_local_fmm_distance(local_traversible)
-        print("local_distance")
-        print(local_distance)
 
         # Normalize cost by local distance to encourage exploration
         local_distance = np.maximum(local_distance, self._MIN_LOCAL_DIST)
-        normalized_cost = relative_cost / local_distance
-        normalized_cost = self._apply_gradient_filter(
-            normalized_cost, np.ones_like(normalized_cost), threshold=gradient_threshold
-        )
+        normalized_cost = relative_cost # / local_distance
+        #normalized_cost = self._apply_gradient_filter(
+        #    normalized_cost, np.ones_like(normalized_cost), threshold=gradient_threshold
+        #)
 
-        print("normalized cost")
-        print(normalized_cost)
         # Favor moves that make direct progress toward goal
         # Compute gradient direction from FMM field
         center = self.du
@@ -386,13 +375,13 @@ class FMMPlanner:
                 penalty_weight = 0.5 if self.version == "classic" else 0.2
                 alignment_penalty = (1.0 - alignment) * penalty_weight   # * (distances > 0.5)
                 alignment_penalty[self.du , self.du] += 10   # penalize staying at the same position
-                print("alignment penalty")
-                print(alignment_penalty)
+                # print("alignment penalty")
+                # print(alignment_penalty)
                 normalized_cost = normalized_cost + alignment_penalty
 
         return normalized_cost
 
-    def get_short_term_goal(self, state: list[int]) -> tuple[float, float, bool]:
+    def get_short_term_goal(self, state: list[int]) -> tuple[float, float, float, bool]:
         """Compute the next short-term goal toward the long-term goal.
 
         This method uses Fast Marching Method to find the locally optimal next
@@ -400,30 +389,53 @@ class FMMPlanner:
         constraints and avoiding local minima. Prefers forward moves over rotations.
 
         Args:
-            state: Current agent state [x, y, orientation] in coordinates
+            state: Current agent state [x, y, height] in coordinates
 
         Returns:
             Tuple of (stg_x, stg_y, replan) where:
                 - stg_x: Short-term goal x coordinate
                 - stg_y: Short-term goal y coordinate
+                - height: Target height coordinate
                 - replan: Whether replanning is needed (goal unreachable)
         """
         state_scaled = state
         state_int = [int(x) for x in state_scaled]
+        height = state[2]
 
         normalized_cost = self._get_normalized_cost(state, self.fmm_dist, self.traversible)
-        if self.traversible_above:
-            normalized_cost_above = self._get_normalized_cost(state, self.fmm_dist_above, self.traversible_above)
-        if self.traversible_below:
-            normalized_cost_below = self._get_normalized_cost(state, self.fmm_dist_below, self.traversible_below)
+        # print("normalized cost")
+        # print(normalized_cost)
         
         if np.all(normalized_cost == 0):
             print("stg planning undecided")
-            return state_int[0], state_int[1], True
+            return state_int[0], state_int[1], height, True
 
         # Find location with minimum cost (steepest descent toward goal)
         min_idx = np.argmin(normalized_cost)
         local_goal_x, local_goal_y = np.unravel_index(min_idx, normalized_cost.shape)
+
+        if self.traversible_above is not None:
+            normalized_cost_above = self._get_normalized_cost(state, self.fmm_dist_above, self.traversible_above)
+            normalized_cost_above += 0.5  # the cost of moving up one level
+            # print("normalized cost above")
+            # print(normalized_cost_above)
+            min_idx_above = np.argmin(normalized_cost_above)
+            local_goal_x_above, local_goal_y_above = np.unravel_index(min_idx_above, normalized_cost_above.shape)
+            if normalized_cost_above[local_goal_x_above, local_goal_y_above] < normalized_cost[local_goal_x, local_goal_y]:
+                local_goal_x = local_goal_x_above
+                local_goal_y = local_goal_y_above
+                if height < 1:
+                    height += 1
+        if self.traversible_below is not None:
+            normalized_cost_below = self._get_normalized_cost(state, self.fmm_dist_below, self.traversible_below)
+            normalized_cost_below += 0.2  # the cost of moving down one level
+            min_idx_below = np.argmin(normalized_cost_below)
+            local_goal_x_below, local_goal_y_below = np.unravel_index(min_idx_below, normalized_cost_below.shape)
+            if normalized_cost_below[local_goal_x_below, local_goal_y_below] < normalized_cost[local_goal_x, local_goal_y]:
+                local_goal_x = local_goal_x_below
+                local_goal_y = local_goal_y_below
+                if height > 0:
+                    height -= 1
 
         # Determine if replanning is needed (no valid descent direction)
         replan = normalized_cost[local_goal_x, local_goal_y] > self._REPLAN_THRESHOLD
@@ -432,4 +444,4 @@ class FMMPlanner:
         goal_x = (local_goal_x + state_int[0] - self.du)
         goal_y = (local_goal_y + state_int[1] - self.du)
 
-        return goal_x, goal_y, replan
+        return goal_x, goal_y, height, replan

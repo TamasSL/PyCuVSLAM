@@ -52,11 +52,12 @@ class ExplorationPlanner:
         
         # 2. Cluster frontiers into regions
         frontier_clusters = self._cluster_frontiers(frontiers, occupancy_grid.shape)
-        self.visualizer.visualize_frontier_clusters(frontier_clusters)
         
         # 3. Evaluate each frontier cluster
         best_target = None
         best_score = -float('inf')
+
+        valid_frontier_clusters = []
         
         for cluster in frontier_clusters:
             if len(cluster) < 3:  # Ignore tiny frontiers
@@ -85,10 +86,13 @@ class ExplorationPlanner:
             w_dist = -1.0    # Weight for distance (negative = prefer closer)
             
             score = w_info * information_gain + w_dist * distance
+            valid_frontier_clusters.append(cluster)
             
             if score > best_score:
                 best_score = score
                 best_target = tuple(centroid)
+
+        self.visualizer.visualize_frontier_clusters(valid_frontier_clusters)
         
         return best_target
 

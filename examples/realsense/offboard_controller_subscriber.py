@@ -69,40 +69,41 @@ class OffboardControllerSubscriber:
 
     async def _execute_command(self, command):
         """Execute command received from the queue"""
-        try:
-            cmd_type = command.command
-            target_x_ned = command.x
-            target_y_ned = command.y
-            diff_to_target_angle = command.z
+        # try:
+        cmd_type = command.command
+        target_x_ned = command.x
+        target_y_ned = command.y
+        target_z_ned = command.z
+        diff_to_target_angle = command.velocity
+        
+        if cmd_type == sensor_stream_pb2.DroneCommand.ARM:
+            await self._arm()
             
-            if cmd_type == sensor_stream_pb2.DroneCommand.ARM:
-                await self._arm()
-                
-            elif cmd_type == sensor_stream_pb2.DroneCommand.TAKEOFF:
-                await self._takeoff()
-                
-            elif cmd_type == sensor_stream_pb2.DroneCommand.LAND:
-                await self._land()
-
-            elif cmd_type == sensor_stream_pb2.DroneCommand.FOLLOW_ONCE:
-                print(f"✅ Command executed: follow target position once")
-                await self._move_to_position(target_x_ned, target_y_ned, diff_to_target_angle)
-
-            elif cmd_type == sensor_stream_pb2.DroneCommand.FOLLOW:
-                print(f"✅ Command executed: enable continously following target position")
-                self.follow_target_position = True
-
-            elif cmd_type == sensor_stream_pb2.DroneCommand.UNFOLLOW:
-                print(f"✅ Command executed: disable continously following target position")
-                self.follow_target_position = False
-
-            if self.follow_target_position:
-                await self._move_to_position(target_x_ned, target_y_ned, diff_to_target_angle)
-                
-            print(f"current [{self.target_north}, {self.target_east}], target: [{target_x_ned}, {target_y_ned}, {diff_to_target_angle}]")
+        elif cmd_type == sensor_stream_pb2.DroneCommand.TAKEOFF:
+            await self._takeoff()
             
-        except Exception as e:
-            print(f"❌ Failed to execute command: {e}")
+        elif cmd_type == sensor_stream_pb2.DroneCommand.LAND:
+            await self._land()
+
+        elif cmd_type == sensor_stream_pb2.DroneCommand.FOLLOW_ONCE:
+            print(f"✅ Command executed: follow target position once")
+            await self._move_to_position(target_x_ned, target_y_ned, target_z_ned, diff_to_target_angle)
+
+        elif cmd_type == sensor_stream_pb2.DroneCommand.FOLLOW:
+            print(f"✅ Command executed: enable continously following target position")
+            self.follow_target_position = True
+
+        elif cmd_type == sensor_stream_pb2.DroneCommand.UNFOLLOW:
+            print(f"✅ Command executed: disable continously following target position")
+            self.follow_target_position = False
+
+        if self.follow_target_position:
+            await self._move_to_position(target_x_ned, target_y_ned, target_z_ned, diff_to_target_angle)
+            
+        print(f"current [{self.target_north}, {self.target_east}], target: [{target_x_ned}, {target_y_ned}, {diff_to_target_angle}]")
+            
+        # except Exception as e:
+        #    print(f"❌ Failed to execute command: {e}")
 
     async def _arm(self):
         print("Arming...")
@@ -140,15 +141,17 @@ class OffboardControllerSubscriber:
             # move back 0.5m, turn another 180 degrees
             # this should allow discovering the area around the drone
             # without leaving a black hole at the drone's starting position
-            self.target_north += 0.5
-            await asyncio.sleep(1)
+            for i in range(5):
+                self.target_north += 0.1
+                await asyncio.sleep(0.5)
 
             for i in range(18):
                 self.target_yaw += 10
                 await asyncio.sleep(0.5)
 
-            self.target_north -= 0.5
-            await asyncio.sleep(1)
+            for i in range(5):
+                self.target_north -= 0.1
+                await asyncio.sleep(0.5)
 
             for i in range(18):
                 self.target_yaw += 10
@@ -190,21 +193,25 @@ class OffboardControllerSubscriber:
             print("Heartbeat loop cancelled")
     
 
-    async def _move_to_position(self, target_x_ned, target_y_ned, diff_to_target_angle):
+    async def _move_to_position(self, target_x_ned, target_y_ned, target_z_ned, diff_to_target_angle):
         """Move to specified target position.
         The movement is done this way:
         - first, turn towards the target position, until the relative angle is [-20, 20] degrees.
         - then, move towards the target position"""
 
         # Update target position if drone is facing closely towards the target position
-        if abs(diff_to_target_angle) < 20:
-            self.target_north = target_x_ned
-            self.target_east = target_y_ned
         
-        self.target_yaw += diff_to_target_angle
+        if self.target_yaw != diff_to_target_angle
+            wait_for = abs(self.target_yaw - diff_to_target_angle) / 20
+            self.target_yaw = diff_to_target_angle
+            await asyncio.sleep(wait_for)
+
+        self.target_north = target_x_ned
+        self.target_east = target_y_ned
+        self.target_down = target_z_ned
     
         # Heartbeat will send updated position
-        await asyncio.sleep(2)  
+        await asyncio.sleep(1)  
 
 
     

@@ -91,7 +91,7 @@ class RerunVisualizer:
         obstacles = []
         explored = []
         for p in map_uv:
-            if p[2] == 1:
+            if p[2] == 0:
                 obstacles.append([p[0],p[1]])
             elif p[2] == 2:
                 explored.append([p[0],p[1]])
@@ -122,9 +122,16 @@ class RerunVisualizer:
             goal, radii=0.5, colors=[0, 0, 255], draw_order=150
         ))
 
-    def _visualize_stg(self, goal):
+    def _visualize_stg(self, goal, goal_height):
+        if goal_height == 0:
+            color = [255, 165, 0]
+        elif goal_height == 1:
+            color = [255, 0, 0]
+        else:
+            color = [0, 255, 0]
+        
         rr.log('world/camera_0/stg', rr.Points2D(
-            goal, radii=0.5, colors=[255, 165, 0],  draw_order=80
+            goal, radii=0.5, colors=color,  draw_order=80
         ))
 
     def _visualize_drone(self, drone_uv, yaw_rad):
@@ -150,7 +157,7 @@ class RerunVisualizer:
         
         # Arrow origin and vector
         rr.log('world/camera_0/z_drone_orientation', rr.Arrows2D(
-            origins=drone_uv,
+            origins=[drone_uv[0][0], drone_uv[0][1]],
             vectors=[[dx, dy]],
             colors=[255, 0, 0],  # Red arrow
             radii=0.3,
