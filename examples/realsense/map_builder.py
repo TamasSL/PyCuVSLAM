@@ -36,23 +36,23 @@ class MapBuilder(object):
         self.visualize = params["visualize"]
         self.obs_threshold = params["obs_threshold"]
 
-        map_size = self.map_size_cm // self.resolution
+        self.map_size = self.map_size_cm // self.resolution
         self.map = np.zeros(
             (
-                map_size,
-                map_size,
+                self.map_size,
+                self.map_size,
                 len(self.z_bins) + 1,
             ),
             dtype=np.float32,
         )
         self.explored_area = np.zeros(
             (
-                map_size,
-                map_size,
+                self.map_size,
+                self.map_size,
             ),
             dtype=np.uint8,
         )
-        self.current_field_of_view = np.zeros((map_size, map_size), dtype=np.uint8)
+        self.current_field_of_view = np.zeros((self.map_size, self.map_size), dtype=np.uint8)
 
         self.agent_height = params["agent_height"]
         self.agent_view_angle = params["agent_view_angle"]
