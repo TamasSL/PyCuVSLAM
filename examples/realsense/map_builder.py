@@ -86,10 +86,10 @@ class MapBuilder(object):
 
         x = int(current_pose[1] / self.resolution)
         y = int(current_pose[0] / self.resolution)
-        for j in range(min(x-1,0), min(x+2, self.map_size)):
-            for k in range(min(y-1,0), min(y+2, self.map_size)):
-                for i in range(len(self.z_bins) + 1):
-                    self.map[j, k, i] = 0 # clear obstacle at center
+        for j in range(max(x-1,0), min(x+2, self.map_size)):
+            for k in range(max(y-1,0), min(y+2, self.map_size)):
+                for i in range(len(self.z_bins)):
+                    self.map[j, k, i+1] = 0 # clear obstacle at center
 
         map_level = self.map[:, :, 1] / self.obs_threshold
         map_level[map_level >= 0.5] = 1.0
