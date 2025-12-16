@@ -83,8 +83,13 @@ class MapBuilder(object):
         )
 
         self.map = self.map + geocentric_flat
-        for i in range(len(self.z_bins) + 1):
-            self.map[int(current_pose[1] / 10), int(current_pose[0] / 10), i] = 0 # clear obstacle at center
+
+        x = int(current_pose[1] / self.resolution)
+        y = int(current_pose[0] / self.resolution)
+        for j in range(min(x-1,0), min(x+2, self.map_size)):
+            for k in range(min(y-1,0), min(y+2, self.map_size)):
+                for i in range(len(self.z_bins) + 1):
+                    self.map[j, k, i] = 0 # clear obstacle at center
 
         map_level = self.map[:, :, 1] / self.obs_threshold
         map_level[map_level >= 0.5] = 1.0
@@ -98,7 +103,7 @@ class MapBuilder(object):
         map_below[map_below >= 0.5] = 1.0
         map_below[map_below < 0.5] = 0.0
 
-        self._update_explored_area(current_pose[1] / 10, current_pose[0] / 10, -current_pose[2], map_level)
+        self._update_explored_area(x, y, -current_pose[2], map_level)
         # remove false past obstacles
         for x in range(self.current_field_of_view.shape[0]):
             for y in range(self.current_field_of_view.shape[1]):
