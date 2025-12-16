@@ -136,14 +136,20 @@ class OffboardControllerSubscriber:
         try:
             self._offboard_running = True
 
+            # Start heartbeat task
+            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
+            await self.drone.offboard.start()
+
             # initialization sequence for initial discovery
             # move forward 0.5m, turn 180 degrees
             # move back 0.5m, turn another 180 degrees
             # this should allow discovering the area around the drone
             # without leaving a black hole at the drone's starting position
+            
             for i in range(5):
                 self.target_north += 0.1
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(1)
 
             for i in range(18):
                 self.target_yaw += 10
@@ -151,20 +157,13 @@ class OffboardControllerSubscriber:
 
             for i in range(5):
                 self.target_north -= 0.1
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(1)
 
             for i in range(18):
                 self.target_yaw += 10
                 await asyncio.sleep(0.5)
             
-            # Start heartbeat task
-            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
-
-            await self.drone.offboard.start()
             
-            for i in range(36):
-                self.target_yaw += 10
-                await asyncio.sleep(0.5)
 
             print("✅ Offboard mode active")
         except OffboardError as e:
@@ -206,7 +205,6 @@ class OffboardControllerSubscriber:
         - then, move towards the target position"""
 
         # Update target position if drone is facing closely towards the target position
-
         diff_yaw = abs(self.target_yaw - target_angle)
         if diff_yaw < 15:
             self.target_north = target_x_ned
@@ -215,6 +213,7 @@ class OffboardControllerSubscriber:
             self.target_yaw = target_angle
             await asyncio.sleep(1)  
         else:
+            self.target_yaw = target_angle
             wait_for = diff_yaw / 20
             await asyncio.sleep(wait_for)
 
