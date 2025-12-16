@@ -256,6 +256,7 @@ async def main() -> int:
                     )
                     yaw, roll, pitch = quaternion_to_euler(odom_pose.rotation[0], odom_pose.rotation[1], odom_pose.rotation[2], odom_pose.rotation[3])
 
+                    map_builder.set_height(-z_ned * 100 + 20) # centimeters
                     map_level, map_above, map_below, explored_gt = map_builder.update_map(images[1] * np.float32(depth_scale) * 100, [odom_pose.translation[2] * 100, -odom_pose.translation[0] * 100, -yaw])
 
                     H, W = map_level.shape

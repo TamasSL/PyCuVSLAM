@@ -9,12 +9,12 @@ params = dict(
     vision_range=20,
     map_size_cm=1600,
     resolution=10,
-    agent_min_z=70,
+    agent_min_z=50,
     agent_max_z=100,
     du_scale = 2,
     visualize=True,
     obs_threshold=1.3,
-    agent_height=50,
+    agent_height=20,
     agent_view_angle=0
 )
 
@@ -58,6 +58,9 @@ class MapBuilder(object):
         self.agent_view_angle = params["agent_view_angle"]
         return
 
+    def set_height(self, height):
+        self.agent_height = height
+
     def update_map(self, depth: np.ndarray, current_pose: (float, float, float)):
         with np.errstate(invalid="ignore"):
             depth[depth > self.vision_range * self.resolution] = (
@@ -80,6 +83,8 @@ class MapBuilder(object):
         )
 
         self.map = self.map + geocentric_flat
+        for i in range(len(self.z_bins) + 1):
+            self.map[int(current_pose[1] / 10), int(current_pose[0] / 10), i] = 0 # clear obstacle at center
 
         map_level = self.map[:, :, 1] / self.obs_threshold
         map_level[map_level >= 0.5] = 1.0
@@ -93,7 +98,7 @@ class MapBuilder(object):
         map_below[map_below >= 0.5] = 1.0
         map_below[map_below < 0.5] = 0.0
 
-        self._update_explored_area(current_pose[1] / 10, current_pose[0] / 10, -current_pose[2])
+        self._update_explored_area(current_pose[1] / 10, current_pose[0] / 10, -current_pose[2], map_level)
         # remove false past obstacles
         for x in range(self.current_field_of_view.shape[0]):
             for y in range(self.current_field_of_view.shape[1]):
@@ -105,7 +110,7 @@ class MapBuilder(object):
         return map_level, map_above, map_below, self.explored_area
 
 
-    def _update_explored_area(self, x, y, yaw_rad):
+    def _update_explored_area(self, x, y, yaw_rad, map_obstacle):
         """
         Args:
             x, y: camera's position as grid coordinates
@@ -146,12 +151,12 @@ class MapBuilder(object):
                 
                 # Check if within FOV
                 if abs(angle_diff) <= half_fov:
-                    if self._has_line_of_sight(x, y, row, col):
+                    if self._has_line_of_sight(x, y, row, col, map_obstacle):
                         self.current_field_of_view[row, col] = 1
 
         self.explored_area += self.current_field_of_view
 
-    def _has_line_of_sight(self, x0, y0, x1, y1):
+    def _has_line_of_sight(self, x0, y0, x1, y1, map_obstacle):
         """
         Bresenham's line algorithm for line of sight check.
         """
@@ -162,7 +167,7 @@ class MapBuilder(object):
         
         # Check if any point (except the last) is an obstacle
         for i, (px, py) in enumerate(points[:-1]):  # Exclude target cell
-            if self.map[px, py] == 1:
+            if map_obstacle[px, py] == 1:
                 return False
         
         del points

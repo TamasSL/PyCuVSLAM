@@ -68,7 +68,7 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
         
         self.voxel_size_m = 0.01
         self.max_integration_distance_m = 3.0
-        self.visualize_mesh_hz = 0.05
+        self.visualize_mesh_hz = 0.5
         self.last_visualize_mesh_time = time.time()
         self.last_print_time = time.time()
         self._initialize_intrinsics()
@@ -321,26 +321,13 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             if T_W_C_left_infrared is not None:
                 self.visualizer.visualize_cuvslam(T_W_C_left_infrared.cpu().numpy(), None, None)
 
-            drone_pos = [[-position[0] * 10 + 80, position[2] * 10 + 80, int(position[1] * 2)]] # shifted by map-size for centering
+            drone_pos = [[-position[0] * 10 + 80, position[2] * 10 + 80, math.floor(-position[1] * 2 + 0.4)]] # shifted by map-size for centering
             yaw, roll, pitch = quaternion_to_euler(orientation[0], orientation[1], orientation[2], orientation[3])
             self.visualizer._visualize_drone(drone_pos, yaw)
 
             traversible = np.ones(
                 (
-                    self.map_size,
-                    self.map_size
-                ),
-                dtype=np.uint8,
-            )
-            traversible_above = np.ones(
-                (
-                    self.map_size,
-                    self.map_size
-                ),
-                dtype=np.uint8,
-            )
-            traversible_below = np.ones(
-                (
+                    3,
                     self.map_size,
                     self.map_size
                 ),
@@ -355,25 +342,25 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
                 x = p[0]
                 y = p[1]
                 if p[2] == 0: # obstacle at current level
-                    traversible[x][y] = 0
+                    traversible[1][x][y] = 0
                     for i in range(max(x-2,0),min(x+3, self.map_size)):
                         for j in range(max(y-2,0),min(y+3, self.map_size)):
-                            traversible[i][j] = 0
+                            traversible[1][i][j] = 0
                     long_term_grid[x][y] = 1
                 elif p[2] == 2: #explored, free space
                     long_term_grid[x][y] = 0
                 if p[2] == 1: # obstacle at level above
-                    traversible_above[x][y] = 0
+                    traversible[2][x][y] = 0
                     for i in range(max(x-1,0),min(x+2, self.map_size)):
                         for j in range(max(y-1,0),min(y+2, self.map_size)):
-                            traversible_above[i][j] = 0
+                            traversible[2][i][j] = 0
                 if p[2] == -1: # obstacle at level below
-                    traversible_below[x][y] = 0
+                    traversible[0][x][y] = 0
                     for i in range(max(x-1,0),min(x+2, self.map_size)):
                         for j in range(max(y-1,0),min(y+2, self.map_size)):
-                            traversible_below[i][j] = 0
+                            traversible[0][i][j] = 0
         
-            fmm_planner = FMMPlanner(traversible, None, None, "fm2") # traversible_above, traversible_below, "fm2")
+            fmm_planner = FMMPlanner(traversible, "fm2")
 
             lt_target = self.long_term_goal_planner.get_next_exploration_target(
                 long_term_grid, 
@@ -384,14 +371,19 @@ class SensorStreamServicer(sensor_stream_pb2_grpc.SensorStreamServiceServicer):
             #if target is None:
             #    print("✅ Exploration complete!")
 
-            ltg = lt_target or [80, 80]
+            ltg = [80, 90] # lt_target or [80, 90]
             reachable = fmm_planner.set_goal((ltg[1], ltg[0]))
+            # print(f"drone pos {-position[1]}")
             if self.initial_plan:
-                self.stg_x_gt, self.stg_y_gt, self.stg_h, replan = fmm_planner.get_short_term_goal(drone_pos[0])
+                self.stg_x_gt, self.stg_y_gt, diff_z, replan = fmm_planner.get_short_term_goal([drone_pos[0][0], drone_pos[0][1], drone_pos[0][2]])
+                self.stg_h += diff_z
                 self.initial_plan = False
-            elif ((abs(drone_pos[0][0] - self.stg_x_gt) < 3) and (abs(drone_pos[0][1] - self.stg_y_gt) < 3)): # and abs(position[1] - self.stg_z_ned) < 0.1:
-                self.stg_x_gt, self.stg_y_gt, self.stg_h, replan = fmm_planner.get_short_term_goal([self.stg_x_gt, self.stg_y_gt, self.stg_h])
                 print(f"stg: {self.stg_x_gt} {self.stg_y_gt} {self.stg_h} {replan}")
+            elif ((abs(drone_pos[0][0] - self.stg_x_gt) < 3) and (abs(drone_pos[0][1] - self.stg_y_gt) < 3)) and drone_pos[0][2] == self.stg_h:
+                self.stg_x_gt, self.stg_y_gt, diff_z, replan = fmm_planner.get_short_term_goal([self.stg_x_gt, self.stg_y_gt, self.stg_h])
+                self.stg_h += diff_z
+                print(f"stg: {self.stg_x_gt} {self.stg_y_gt} {self.stg_h} {replan}")
+            
             self.visualizer._visualize_goal([[ltg[0], ltg[1]]])
             self.visualizer._visualize_map(points_array)
 

@@ -127,6 +127,8 @@ class RerunVisualizer:
             color = [255, 165, 0]
         elif goal_height == 1:
             color = [255, 0, 0]
+        elif goal_height == 2:
+            color = [255, 0, 165]
         else:
             color = [0, 255, 0]
         
@@ -154,12 +156,21 @@ class RerunVisualizer:
         yaw_rad += np.pi / 2.0
         dx = arrow_length * np.cos(yaw_rad)
         dy = arrow_length * np.sin(yaw_rad)
+
+        if drone_uv[0][2] == 0:
+            color = [255, 165, 0]
+        elif drone_uv[0][2] == 1:
+            color = [255, 0, 0]
+        elif drone_uv[0][2] == 2:
+            color = [255, 0, 165]
+        else:
+            color = [0, 255, 0]
         
         # Arrow origin and vector
         rr.log('world/camera_0/z_drone_orientation', rr.Arrows2D(
             origins=[drone_uv[0][0], drone_uv[0][1]],
             vectors=[[dx, dy]],
-            colors=[255, 0, 0],  # Red arrow
+            colors=color,  # Red arrow
             radii=0.3,
             draw_order=100
         ))
