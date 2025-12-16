@@ -107,10 +107,11 @@ class MapBuilder(object):
         # remove false past obstacles
         for x in range(self.current_field_of_view.shape[0]):
             for y in range(self.current_field_of_view.shape[1]):
-                for i in range(len(self.z_bins) + 1):
-                    if self.current_field_of_view[x, y] == 1 and geocentric_flat[x, y, i] < 0.5:
-                        # coordinate x,y is in view and has no obstacle
-                        self.map[x, y, i] = 0 # clear obstacle
+                #for i in range(len(self.z_bins) + 1):
+                agent_height_bin = math.floor(2 * self.agent_height / 100)
+                if self.current_field_of_view[x, y] == 1 and geocentric_flat[x, y, agent_height_bin] < 0.5:
+                    # coordinate x,y is in view and has no obstacle
+                    self.map[x, y, agent_height_bin] = 0 # clear obstacle
         
         return map_level, map_above, map_below, self.explored_area
 
