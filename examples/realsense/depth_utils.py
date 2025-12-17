@@ -100,7 +100,7 @@ def bin_points(XYZ_cms, map_size, z_bins, xy_resolution):
     counts = []
     isvalids = []
 
-    z_bins_floor_threshold = [10] + z_bins
+    z_bins_floor_threshold = [10] + z_bins + [150]
     for XYZ_cm in XYZ_cms:
         X_notnan = np.logical_not(np.isnan(XYZ_cm[:, :, 0]))
         X_bin = np.full_like(XYZ_cm[:, :, 0], -1, dtype=np.int32)
