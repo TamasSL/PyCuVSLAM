@@ -1,4 +1,5 @@
 import numpy as np
+import math
 
 import depth_utils as du
 
@@ -13,7 +14,7 @@ params = dict(
     agent_max_z=100,
     du_scale = 2,
     visualize=True,
-    obs_threshold=1.3,
+    obs_threshold=1,
     agent_height=20,
     agent_view_angle=0
 )
@@ -62,34 +63,41 @@ class MapBuilder(object):
         self.agent_height = height
 
     def update_map(self, depth: np.ndarray, current_pose: (float, float, float)):
-        with np.errstate(invalid="ignore"):
-            depth[depth > self.vision_range * self.resolution] = (
-                np.nan
-            )  # can be adjusted to capture more
-        point_cloud = du.get_point_cloud_from_z(
-            depth, self.camera_matrix, scale=self.du_scale
-        )
-
-        agent_view = du.transform_camera_view(
-            point_cloud, self.agent_height, self.agent_view_angle
-        )
-
         current_pose[0] += self.map_size_cm / 2
         current_pose[1] += self.map_size_cm / 2
-        geocentric_pc = du.transform_pose(agent_view, current_pose)
-
-        geocentric_flat = du.bin_points(
-            geocentric_pc, self.map.shape[0], self.z_bins, self.resolution
-        )
-
-        self.map = self.map + geocentric_flat
-
         x = int(current_pose[1] / self.resolution)
         y = int(current_pose[0] / self.resolution)
-        for j in range(max(x-1,0), min(x+2, self.map_size)):
-            for k in range(max(y-1,0), min(y+2, self.map_size)):
-                for i in range(len(self.z_bins)):
-                    self.map[j, k, i+1] = 0 # clear obstacle at center
+        agent_heights = [30, 75, 125]
+        is_stable_height = False
+        for h in agent_heights:
+            if self.agent_height > h - 10 and self.agent_height < h + 10:
+                is_stable_height = True
+        
+        if is_stable_height:
+            with np.errstate(invalid="ignore"):
+                depth[depth > self.vision_range * self.resolution] = (
+                    np.nan
+                )  # can be adjusted to capture more
+            point_cloud = du.get_point_cloud_from_z(
+                depth, self.camera_matrix, scale=self.du_scale
+            )
+
+            agent_view = du.transform_camera_view(
+                point_cloud, self.agent_height, self.agent_view_angle
+            )
+
+            geocentric_pc = du.transform_pose(agent_view, current_pose)
+
+            geocentric_flat = du.bin_points(
+                geocentric_pc, self.map.shape[0], self.z_bins, self.resolution
+            )
+
+            self.map = self.map + geocentric_flat
+
+            for j in range(max(x-1,0), min(x+2, self.map_size)):
+                for k in range(max(y-1,0), min(y+2, self.map_size)):
+                    for i in range(len(self.z_bins) + 1):
+                        self.map[j, k, i] = 0 # clear obstacle at center
 
         map_level = self.map[:, :, 1] / self.obs_threshold
         map_level[map_level >= 0.5] = 1.0
@@ -100,18 +108,22 @@ class MapBuilder(object):
         map_above[map_above < 0.5] = 0.0
 
         map_below = self.map[:, :, 0] / self.obs_threshold
+        
         map_below[map_below >= 0.5] = 1.0
         map_below[map_below < 0.5] = 0.0
+        # print(map_below[75:85,80:90])
 
-        self._update_explored_area(x, y, -current_pose[2], map_level)
-        # remove false past obstacles
-        for x in range(self.current_field_of_view.shape[0]):
-            for y in range(self.current_field_of_view.shape[1]):
-                #for i in range(len(self.z_bins) + 1):
-                agent_height_bin = math.floor(2 * self.agent_height / 100)
-                if self.current_field_of_view[x, y] == 1 and geocentric_flat[x, y, agent_height_bin] < 0.5:
-                    # coordinate x,y is in view and has no obstacle
-                    self.map[x, y, agent_height_bin] = 0 # clear obstacle
+        if is_stable_height:
+            self._update_explored_area(x, y, -current_pose[2], map_level)
+            # remove false past obstacles
+            for x in range(self.current_field_of_view.shape[0]):
+                for y in range(self.current_field_of_view.shape[1]):
+                    #for i in range(len(self.z_bins) + 1):
+                    agent_height_bin = math.floor(2 * self.agent_height / 100)
+                    if self.current_field_of_view[x, y] == 1 and geocentric_flat[x, y, agent_height_bin] < 0.5:
+                        # coordinate x,y is in view and has no obstacle
+                        # print(x, y, agent_height_bin)
+                        self.map[x, y, agent_height_bin] = 0 # clear obstacle
         
         return map_level, map_above, map_below, self.explored_area
 
