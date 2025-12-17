@@ -67,6 +67,7 @@ class MapBuilder(object):
         current_pose[1] += self.map_size_cm / 2
         x = int(current_pose[1] / self.resolution)
         y = int(current_pose[0] / self.resolution)
+
         agent_heights = [30, 75, 125]
         is_stable_height = False
         for h in agent_heights:
