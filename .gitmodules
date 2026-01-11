@@ -1,0 +1,3 @@
+[submodule "thirdparty/droid_slam"]
+	path = thirdparty/droid_slam
+	url = https://github.com/princeton-vl/DROID-SLAM.git
