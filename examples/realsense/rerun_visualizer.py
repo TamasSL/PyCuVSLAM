@@ -133,9 +133,9 @@ class RerunVisualizer:
         self,
         frame_id: int,
         images: List[np.ndarray],
-        pose,
-        observations_main_cam: List[List[Any]],
-        trajectory: List[np.ndarray],
+        #pose,
+        #observations_main_cam: List[List[Any]],
+        #trajectory: List[np.ndarray],
         timestamp: int,
         gravity: Optional[np.ndarray] = None
     ) -> None:
@@ -151,14 +151,14 @@ class RerunVisualizer:
             gravity: Optional gravity vector
         """
         rr.set_time_sequence("frame", frame_id)
-        rr.log("world/trajectory", rr.LineStrips3D(trajectory), static=True)
+        #rr.log("world/trajectory", rr.LineStrips3D(trajectory), static=True)
 
-        self._log_rig_pose(pose.rotation, pose.translation)
+        #self._log_rig_pose(pose.rotation, pose.translation)
         
-        for i in range(self.num_viz_cameras):
-            self._log_observations(
-                observations_main_cam[i], images[i], f"camera_{i}"
-            )
+        #for i in range(self.num_viz_cameras):
+        #    self._log_observations(
+        #        observations_main_cam[i], images[i], f"camera_{i}"
+        #    )
             
         if gravity is not None:
             self._log_gravity(gravity)

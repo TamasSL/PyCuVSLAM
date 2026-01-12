@@ -27,9 +27,9 @@ class DroidSLAM(PointCloudSLAM):
             Namespace(**dict(settings.base_config), image_size=self.image_size)
         )
         print("hfov")
-        print(env_settings.simulator.camera_hfov)
+        print("87")
         self.intrinsics = self._compute_intrinsics(
-            env_settings.simulator.camera_hfov, *self.image_size
+            87, *self.image_size
         )
         self.tstamp = 0
         self.prev_droid_tstamp = 0
@@ -54,7 +54,8 @@ class DroidSLAM(PointCloudSLAM):
     def _preprocess_img(self, image: np.ndarray, distort=None):
         if image.shape[0] == 3:
             image = image.transpose((1, 2, 0))
-        image = cv2.resize(image, self.image_size)
+        image_size = (env_settings.frame_width, env_settings.frame_height)
+        image = cv2.resize(image, image_size)
         if distort:
             image = cv2.undistort(image, self.K, distort)
         image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
@@ -64,8 +65,9 @@ class DroidSLAM(PointCloudSLAM):
     def _preprocess_depth(self, depth: np.ndarray | None):
         if depth is None:
             return None
-        depth = cv2.resize(depth, self.image_size, interpolation=cv2.INTER_NEAREST)
-        depth = torch.as_tensor(depth, dtype=torch.float32) * 1e-2  # cm -> m
+        image_size = (env_settings.frame_width, env_settings.frame_height)
+        depth = cv2.resize(depth, image_size, interpolation=cv2.INTER_NEAREST)
+        depth = torch.as_tensor(depth, dtype=torch.float32)# * 1e-2  # cm -> m
         depth[(depth >= 3) | (depth <= 0.3) | depth.isnan()] = 0.0
         return depth
 
@@ -117,6 +119,7 @@ class DroidSLAM(PointCloudSLAM):
         self._step_slam(obs)
 
         points, poses = self._extract_points_and_poses()
+        print(points, poses)
         self.xyz = self._voxelize_points(points)[0]
         self.poses = poses
 

@@ -79,8 +79,8 @@ class EnvironmentSettings(Settings):
     # _yaml_path = Path.cwd() / "configs" / config_settings.pointnav_file
     # _yaml_config_section = "env"
 
-    frame_width: int = 640
-    frame_height: int = 480
+    frame_width: int = 320
+    frame_height: int = 240
 
     visualize: int = 0  # 1: Render the frame
     print_images: int = 0  # 1: save visualization as images

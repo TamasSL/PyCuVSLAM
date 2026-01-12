@@ -18,14 +18,27 @@ from sensor import Sensor
 from rerun_visualizer import RerunVisualizer
 
 # Constants
-RESOLUTION = (640, 360)
+RESOLUTION = (640, 480)
 FPS = 30
 WARMUP_FRAMES = 60
 IMAGE_JITTER_THRESHOLD_MS = 35 * 1e6  # 35ms in nanoseconds
 NUM_VIZ_CAMERAS = 2
 
+def reset_realsense_device():
+    """Reset all RealSense devices"""
+    ctx = rs.context()
+    devices = ctx.query_devices()
+    for dev in devices:
+        dev.hardware_reset()
+        print(f"Reset device: {dev.get_info(rs.camera_info.name)}")
+    
+    # Wait for device to come back online
+    import time
+    time.sleep(3)
 
 def main() -> None:
+    reset_realsense_device()
+
     """Main function for RGBD tracking."""
     # Initialize RealSense configuration
     config = rs.config()
@@ -75,6 +88,8 @@ def main() -> None:
 
     visualizer = RerunVisualizer(num_viz_cameras=NUM_VIZ_CAMERAS)
 
+    reset_realsense_device()
+
     # Start pipeline for tracking
     profile = pipeline.start(config)
 
@@ -122,7 +137,7 @@ def main() -> None:
 
                 obs = {
                     Sensor.RGB: images[0],
-                    # Sensor.DEPTH: images[1]
+                    Sensor.STEREO: images[1]
                 }
 
                 print("droid update")
@@ -141,9 +156,9 @@ def main() -> None:
                 visualizer.visualize_frame(
                     frame_id=frame_id,
                     images=images,
-                    pose=odom_pose,
-                    observations_main_cam=[observations, observations],
-                    trajectory=trajectory,
+                    # pose=odom_pose,
+                    # observations_main_cam=[images[0], images[1]],
+                    # trajectory=trajectory,
                     timestamp=timestamp
                 )
 
