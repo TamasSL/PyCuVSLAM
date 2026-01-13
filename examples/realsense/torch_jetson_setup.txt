@@ -5,6 +5,6 @@ export CUDA_VERSION=12.1 # as an example
 bash ./install_cusparselt.sh
 
 
-https://developer.download.nvidia.com/compute/redist/jp/v$JP_VERSION/pytorch/$PYT_VERSION
+https://developer.download.nvidia.com/compute/redist/jp/v61/pytorch/torch-2.5.0a0+872d972e41.nv24.08.17622132-cp310-cp310-linux_aarch64.whl
 
 2.7.0a0+79aa17489c
