@@ -1,0 +1,10 @@
+wget 
+raw.githubusercontent.com/pytorch/pytorch/5c6af2b583709f6176898c017424dc9981023c28/.ci/docker/
+common/install_cusparselt.sh 
+export CUDA_VERSION=12.1 # as an example   
+bash ./install_cusparselt.sh
+
+
+https://developer.download.nvidia.com/compute/redist/jp/v$JP_VERSION/pytorch/$PYT_VERSION
+
+2.7.0a0+79aa17489c
