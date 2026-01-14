@@ -119,7 +119,6 @@ class DroidSLAM(PointCloudSLAM):
         self._step_slam(obs)
 
         points, poses = self._extract_points_and_poses()
-        print(points, poses)
         self.xyz = self._voxelize_points(points)[0]
         self.poses = poses
 

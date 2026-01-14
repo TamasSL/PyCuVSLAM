@@ -142,11 +142,11 @@ def main() -> None:
 
                 print("droid update")
                 # call droid slam here
-                xyz, _ = droid_slam.update(obs)
-                print(xyz)
-
-                odom_pose = xyz
-                trajectory.append(odom_pose)
+                _, poses = droid_slam.update(obs)
+                current_pose = poses[-1]
+                translation = [current_pose[0], current_pose[1], current_pose[2]]
+                quaternion = [current_pose[3], current_pose[4], current_pose[5], current_pose[6]]
+                trajectory.append(translation)
 
                 # Store current timestamp for next iteration
                 prev_timestamp = timestamp
@@ -157,8 +157,10 @@ def main() -> None:
                     frame_id=frame_id,
                     images=images,
                     # pose=odom_pose,
-                    # observations_main_cam=[images[0], images[1]],
-                    # trajectory=trajectory,
+                    translation=translation,
+                    quaternion=quaternion,
+                    observations_main_cam=[[], []],
+                    trajectory=trajectory,
                     timestamp=timestamp
                 )
 

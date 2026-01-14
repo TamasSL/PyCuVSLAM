@@ -88,18 +88,20 @@ class RerunVisualizer:
             image: Camera image
             camera_name: Name of the camera for logging
         """
-        if not observations_main_cam:
-            return
+        #if not observations_main_cam:
+        #    return
 
         # Assign random color to new tracks
-        for obs in observations_main_cam:
-            if obs.id not in self.track_colors:
-                self.track_colors[obs.id] = np.random.randint(0, 256, size=3)
+        #for obs in observations_main_cam:
+        #    if obs.id not in self.track_colors:
+        #        self.track_colors[obs.id] = np.random.randint(0, 256, size=3)
 
-        points = np.array([[obs.u, obs.v] for obs in observations_main_cam])
-        colors = np.array([
-            self.track_colors[obs.id] for obs in observations_main_cam
-        ])
+        points = []
+        colors = []
+        #points = np.array([[obs.u, obs.v] for obs in observations_main_cam])
+        #colors = np.array([
+        #    self.track_colors[obs.id] for obs in observations_main_cam
+        #])
 
         # Handle different image datatypes for compression
         if image.dtype == np.uint8:
@@ -134,8 +136,10 @@ class RerunVisualizer:
         frame_id: int,
         images: List[np.ndarray],
         #pose,
-        #observations_main_cam: List[List[Any]],
-        #trajectory: List[np.ndarray],
+        translation,
+        quaternion,
+        observations_main_cam: List[List[Any]],
+        trajectory: List[np.ndarray],
         timestamp: int,
         gravity: Optional[np.ndarray] = None
     ) -> None:
@@ -151,14 +155,14 @@ class RerunVisualizer:
             gravity: Optional gravity vector
         """
         rr.set_time_sequence("frame", frame_id)
-        #rr.log("world/trajectory", rr.LineStrips3D(trajectory), static=True)
+        rr.log("world/trajectory", rr.LineStrips3D(trajectory), static=True)
 
-        #self._log_rig_pose(pose.rotation, pose.translation)
+        self._log_rig_pose(quaternion, translation)
         
-        #for i in range(self.num_viz_cameras):
-        #    self._log_observations(
-        #        observations_main_cam[i], images[i], f"camera_{i}"
-        #    )
+        for i in range(self.num_viz_cameras):
+            self._log_observations(
+                observations_main_cam[i], images[i], f"camera_{i}"
+            )
             
         if gravity is not None:
             self._log_gravity(gravity)
