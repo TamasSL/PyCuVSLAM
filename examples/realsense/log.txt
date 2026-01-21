@@ -1,39 +1,75 @@
-Loading TensorRT engines...
-
 ============================================================
-Loading TensorRT Engine: trt_engines/droid_fnet_240x320_fp16.trt
+SYSTEM INFORMATION
 ============================================================
-  Input shape:  (3, 240, 320)
-  Output shape: (128, 30, 40)
-  Precision:    FP16
-[01/21/2026-12:41:27] [TRT] [W] Using an engine plan file across different models of devices is not recommended and is likely to affect performance or even cause errors.
-  Input tensor:  image
-  Output tensor: features
-  Status:       ✓ Ready
+GPU: Orin (nvgpu), 8.7
+TensorRT version: 10.7.0
+Hostname: holybro-desktop
 ============================================================
 
 ============================================================
-Loading TensorRT Engine: trt_engines/droid_cnet_240x320_fp16.trt
+BUILDING TENSORRT ENGINES
 ============================================================
-  Input shape:  (3, 240, 320)
-  Output shape: (256, 30, 40)
-  Precision:    FP16
-[01/21/2026-12:41:27] [TRT] [W] Using an engine plan file across different models of devices is not recommended and is likely to affect performance or even cause errors.
-  Input tensor:  image
-  Output tensor: context
-  Status:       ✓ Ready
+ONNX directory: onnx_models
+Engine directory: trt_engines
 ============================================================
-Traceback (most recent call last):
-  File "/home/holybro/Documents/code/fork/PyCuVSLAM/examples/realsense/run_droid.py", line 175, in <module>
-    main()
-  File "/home/holybro/Documents/code/fork/PyCuVSLAM/examples/realsense/run_droid.py", line 101, in main
-    droid_slam = DroidSLAM()
-  File "/home/holybro/Documents/code/fork/PyCuVSLAM/examples/realsense/droid_slam_module.py", line 26, in __init__
-    self.droid = DroidTRT(
-  File "/home/holybro/Documents/code/fork/PyCuVSLAM/examples/realsense/droid_trt_wrapper.py", line 35, in __init__
-    self._patch_droid_networks()
-  File "/home/holybro/Documents/code/fork/PyCuVSLAM/examples/realsense/droid_trt_wrapper.py", line 69, in _patch_droid_networks
-    self.droid.net.fnet = TRTNetWrapper(self.fnet_trt)
-  File "/home/holybro/Documents/code/fork/PyCuVSLAM/droid-env/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1946, in __setattr__
-    raise TypeError(
-TypeError: cannot assign 'droid_trt_wrapper.DroidTRT._patch_droid_networks.<locals>.TRTNetWrapper' as child module 'fnet' (torch.nn.Module or None expected)
+[01/21/2026-14:57:18] [TRT] [I] [MemUsageChange] Init CUDA: CPU +13, GPU +0, now: CPU 34, GPU 3423 (MiB)
+[01/21/2026-14:57:21] [TRT] [I] [MemUsageChange] Init builder kernel library: CPU +981, GPU +622, now: CPU 1058, GPU 4091 (MiB)
+
+============================================================
+Building: droid_fnet_240x320_fp16.trt
+============================================================
+ONNX file: onnx_models/droid_fnet_240x320.onnx
+Engine file: trt_engines/droid_fnet_240x320_fp16.trt
+✓ ONNX parsed successfully
+✓ FP16 mode enabled
+Building TensorRT engine (this may take a few minutes)...
+[01/21/2026-14:57:21] [TRT] [I] Local timing cache in use. Profiling results in this builder pass will not be stored.
+[01/21/2026-14:57:23] [TRT] [I] Compiler backend is used during engine build.
+[01/21/2026-14:57:49] [TRT] [I] Detected 1 inputs and 1 output network tensors.
+[01/21/2026-14:57:52] [TRT] [I] Total Host Persistent Memory: 91360 bytes
+[01/21/2026-14:57:52] [TRT] [I] Total Device Persistent Memory: 0 bytes
+[01/21/2026-14:57:52] [TRT] [I] Max Scratch Memory: 1249792 bytes
+[01/21/2026-14:57:52] [TRT] [I] [BlockAssignment] Started assigning block shifts. This will take 43 steps to complete.
+[01/21/2026-14:57:52] [TRT] [I] [BlockAssignment] Algorithm ShiftNTopDown took 0.707723ms to assign 4 blocks to 43 nodes requiring 4936192 bytes.
+[01/21/2026-14:57:52] [TRT] [I] Total Activation Memory: 4936192 bytes
+[01/21/2026-14:57:52] [TRT] [I] Total Weights Memory: 1441280 bytes
+[01/21/2026-14:57:52] [TRT] [I] Compiler backend is used during engine execution.
+[01/21/2026-14:57:52] [TRT] [I] Engine generation completed in 31.5893 seconds.
+[01/21/2026-14:57:52] [TRT] [I] [MemUsageStats] Peak memory usage of TRT CPU/GPU memory allocators: CPU 0 MiB, GPU 9 MiB
+✓ Engine saved: 2.12 MB
+============================================================
+
+[01/21/2026-14:57:54] [TRT] [I] [MemUsageChange] Init builder kernel library: CPU -979, GPU +154, now: CPU 1269, GPU 4367 (MiB)
+
+============================================================
+Building: droid_cnet_240x320_fp16.trt
+============================================================
+ONNX file: onnx_models/droid_cnet_240x320.onnx
+Engine file: trt_engines/droid_cnet_240x320_fp16.trt
+✓ ONNX parsed successfully
+✓ FP16 mode enabled
+Building TensorRT engine (this may take a few minutes)...
+[01/21/2026-14:57:55] [TRT] [I] Local timing cache in use. Profiling results in this builder pass will not be stored.
+[01/21/2026-14:59:58] [TRT] [I] Detected 1 inputs and 1 output network tensors.
+[01/21/2026-14:59:59] [TRT] [I] Total Host Persistent Memory: 97744 bytes
+[01/21/2026-14:59:59] [TRT] [I] Total Device Persistent Memory: 1024 bytes
+[01/21/2026-14:59:59] [TRT] [I] Max Scratch Memory: 0 bytes
+[01/21/2026-14:59:59] [TRT] [I] [BlockAssignment] Started assigning block shifts. This will take 17 steps to complete.
+[01/21/2026-14:59:59] [TRT] [I] [BlockAssignment] Algorithm ShiftNTopDown took 0.12365ms to assign 3 blocks to 17 nodes requiring 3686400 bytes.
+[01/21/2026-14:59:59] [TRT] [I] Total Activation Memory: 3686400 bytes
+[01/21/2026-14:59:59] [TRT] [I] Total Weights Memory: 1472512 bytes
+[01/21/2026-14:59:59] [TRT] [I] Engine generation completed in 124.31 seconds.
+[01/21/2026-14:59:59] [TRT] [I] [MemUsageStats] Peak memory usage of TRT CPU/GPU memory allocators: CPU 0 MiB, GPU 11 MiB
+✓ Engine saved: 2.01 MB
+============================================================
+
+
+============================================================
+BUILD SUMMARY
+============================================================
+Successfully built: 2/2 engines
+
+✓ All engines built successfully!
+
+You can now run: python3 trt_inference.py
+============================================================
