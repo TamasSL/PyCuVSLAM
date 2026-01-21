@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
 TensorRT Inference Wrapper for DROID-SLAM Networks
-Supports FP16 precision with execute_async_v3 API
+Uses PyTorch CUDA interface instead of PyCUDA to avoid context conflicts
 """
 
 import numpy as np
 import torch
 import tensorrt as trt
-import pycuda.driver as cuda
-import pycuda.autoinit
+import ctypes
 
 class TRTDroidNetwork:
     """TensorRT wrapper for DROID-SLAM fnet/cnet with FP16 support"""
@@ -26,13 +25,8 @@ class TRTDroidNetwork:
         self.output_shape = output_shape
         self.use_fp16 = use_fp16
         
-        # Compute sizes - convert to Python int to avoid numpy.int64
-        self.input_size = int(np.prod(input_shape))
-        self.output_size = int(np.prod(output_shape))
-        
         # Determine dtype
-        self.dtype = np.float16 if use_fp16 else np.float32
-        self.dtype_size = 2 if use_fp16 else 4
+        self.dtype = torch.float16 if use_fp16 else torch.float32
         
         print(f"\n{'='*60}")
         print(f"Loading TensorRT Engine: {engine_path}")
@@ -67,16 +61,19 @@ class TRTDroidNetwork:
             raise RuntimeError("Failed to create execution context")
     
     def _allocate_buffers(self):
-        """Allocate GPU buffers for input/output"""
-        # Allocate device memory - ensure int type for PyCUDA
-        input_bytes = int(self.input_size * self.dtype_size)
-        output_bytes = int(self.output_size * self.dtype_size)
+        """Allocate GPU buffers using PyTorch"""
+        # Allocate device memory using PyTorch
+        self.d_input = torch.zeros(
+            (1, *self.input_shape), 
+            dtype=self.dtype, 
+            device='cuda'
+        )
         
-        self.d_input = cuda.mem_alloc(input_bytes)
-        self.d_output = cuda.mem_alloc(output_bytes)
-        
-        # Create CUDA stream
-        self.stream = cuda.Stream()
+        self.d_output = torch.zeros(
+            (1, *self.output_shape), 
+            dtype=self.dtype, 
+            device='cuda'
+        )
         
         # Get tensor names for execute_async_v3
         self.input_name = None
@@ -94,6 +91,9 @@ class TRTDroidNetwork:
         
         print(f"  Input tensor:  {self.input_name}")
         print(f"  Output tensor: {self.output_name}")
+        
+        # Create CUDA stream using PyTorch
+        self.stream = torch.cuda.Stream()
     
     def __call__(self, image_tensor):
         """
@@ -105,48 +105,39 @@ class TRTDroidNetwork:
         Returns:
             PyTorch tensor of shape [1, C_out, H_out, W_out] on GPU
         """
-        # Ensure input is contiguous and correct dtype
+        with torch.cuda.stream(self.stream):
+            # Ensure input is contiguous and correct dtype
+            if self.use_fp16:
+                image_tensor = image_tensor.half().contiguous()
+            else:
+                image_tensor = image_tensor.float().contiguous()
+            
+            # Copy to input buffer
+            self.d_input.copy_(image_tensor)
+            
+            # Set tensor addresses for execute_async_v3
+            self.context.set_tensor_address(
+                self.input_name, 
+                self.d_input.data_ptr()
+            )
+            self.context.set_tensor_address(
+                self.output_name, 
+                self.d_output.data_ptr()
+            )
+            
+            # Execute inference
+            # Get CUDA stream handle as ctypes pointer
+            stream_ptr = ctypes.c_void_p(self.stream.cuda_stream)
+            self.context.execute_async_v3(stream_handle=stream_ptr.value)
+            
+            # Synchronize stream
+            self.stream.synchronize()
+        
+        # Return output (convert back to FP32 if needed)
         if self.use_fp16:
-            image_tensor = image_tensor.half().contiguous()
+            return self.d_output.float()
         else:
-            image_tensor = image_tensor.float().contiguous()
-        
-        # Copy input to device
-        cuda.memcpy_htod_async(
-            self.d_input,
-            image_tensor.cpu().numpy(),
-            self.stream
-        )
-        
-        # Set tensor addresses for execute_async_v3
-        self.context.set_tensor_address(self.input_name, int(self.d_input))
-        self.context.set_tensor_address(self.output_name, int(self.d_output))
-        
-        # Execute inference
-        self.context.execute_async_v3(stream_handle=self.stream.handle)
-        
-        # Allocate output buffer
-        output = np.empty(self.output_shape, dtype=self.dtype)
-        
-        # Copy output back to host
-        cuda.memcpy_dtoh_async(output, self.d_output, self.stream)
-        self.stream.synchronize()
-        
-        # Convert to PyTorch tensor
-        output_tensor = torch.from_numpy(output).unsqueeze(0).cuda()
-        
-        # Convert back to FP32 if needed
-        if self.use_fp16:
-            output_tensor = output_tensor.float()
-        
-        return output_tensor
-    
-    def __del__(self):
-        """Cleanup GPU resources"""
-        if hasattr(self, 'd_input'):
-            self.d_input.free()
-        if hasattr(self, 'd_output'):
-            self.d_output.free()
+            return self.d_output.clone()
 
 
 # ============================================================
@@ -212,4 +203,11 @@ if __name__ == "__main__":
     print(f"Throughput:           {N/elapsed:.1f} FPS")
     print(f"\nFeature output shape: {features.shape}")
     print(f"Context output shape: {context.shape}")
+    
+    # Sanity check - outputs shouldn't be all zeros
+    print(f"\nSanity checks:")
+    print(f"  Feature mean: {features.mean().item():.6f}")
+    print(f"  Feature std:  {features.std().item():.6f}")
+    print(f"  Context mean: {context.mean().item():.6f}")
+    print(f"  Context std:  {context.std().item():.6f}")
     print("="*60)
