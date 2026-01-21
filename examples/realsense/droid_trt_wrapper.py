@@ -1,9 +1,19 @@
 import torch
-import numpy as np
+import torch.nn as nn
 from droid_slam.droid import Droid
-from droid_slam.geom import SE3
-import droid_backends
 from trt_inference import TRTDroidNetwork
+
+class TRTNetWrapper(nn.Module):
+    """Wrapper to make TRTDroidNetwork compatible with torch.nn.Module"""
+    
+    def __init__(self, trt_network):
+        super().__init__()
+        self.trt_network = trt_network
+    
+    def forward(self, x):
+        """Forward pass through TensorRT network"""
+        return self.trt_network(x)
+
 
 class DroidTRT:
     """DROID-SLAM with TensorRT-optimized feature extraction"""
@@ -40,95 +50,24 @@ class DroidTRT:
     def _patch_droid_networks(self):
         """Replace DROID's fnet/cnet with TensorRT versions"""
         
-        # Store original networks (in case needed)
-        self._original_fnet = self.droid.net.fnet
-        self._original_cnet = self.droid.net.cnet
-        
-        # Create wrapper that matches DROID's expected interface
-        class TRTNetWrapper:
-            def __init__(self, trt_net):
-                self.trt_net = trt_net
-            
-            def __call__(self, images):
-                # images: [batch, num_frames, 3, H, W]
-                b, n, c, h, w = images.shape
-                
-                # Process each frame
-                features_list = []
-                for i in range(n):
-                    # Extract single frame: [b, 3, h, w]
-                    frame = images[:, i, :, :, :]
-                    # Run TensorRT inference
-                    feat = self.trt_net(frame)  # [b, C, h/8, w/8]
-                    features_list.append(feat)
-                
-                # Stack back to [batch, num_frames, C, h/8, w/8]
-                features = torch.stack(features_list, dim=1)
-                return features
-        
-        # Replace networks
+        # Wrap TensorRT networks in nn.Module
         self.droid.net.fnet = TRTNetWrapper(self.fnet_trt)
         self.droid.net.cnet = TRTNetWrapper(self.cnet_trt)
     
-    def track(self, timestamp, image, depth=None, intrinsics=None):
-        """Track frame - same interface as original DROID"""
-        return self.droid.track(timestamp, image, depth=depth, intrinsics=intrinsics)
+    def track(self, tstamp, image, depth=None, intrinsics=None):
+        """Forward to DROID's track method"""
+        return self.droid.track(tstamp, image, depth, intrinsics)
     
-    def terminate(self):
-        """Terminate DROID"""
-        return self.droid.terminate()
+    def terminate(self, stream=None):
+        """Forward to DROID's terminate method"""
+        return self.droid.terminate(stream)
     
-    @property
-    def video(self):
-        """Access to DROID's video buffer"""
-        return self.droid.video
-    
-    # ============================================================
-    # Your existing point extraction code - UNCHANGED
-    # ============================================================
-    @torch.no_grad()
-    def extract_points_and_poses(self):
-        """Extract 3D points and camera poses from DROID"""
-        video = self.droid.video
-        t = video.counter.value
-        
-        if t == 0:
-            return np.zeros((0, 3)), np.eye(4)[None, ...]
-        
-        # Get data from video buffer (all PyTorch, no TensorRT involved)
-        intrinsics = video.intrinsics[0]
-        poses = video.poses[:t]
-        disps = video.disps[:t]
-        
-        # Filtering parameters
-        filter_thresh = 0.02
-        filter_count = 2
-        
-        index = torch.arange(t, device="cuda")
-        thresh = filter_thresh * torch.ones_like(disps.mean(dim=[1, 2]))
-        
-        # Back-project to 3D (uses CUDA kernels, not neural networks)
-        points = droid_backends.iproj(SE3(poses).inv().data, disps, intrinsics)
-        
-        # Filter points by depth consistency
-        counts = droid_backends.depth_filter(poses, disps, intrinsics, index, thresh)
-        
-        mask = (counts >= filter_count) & (disps > 0.25 * disps.mean())
-        mask = mask.cpu().numpy()
-        
-        # Extract and filter points
-        points = points.cpu().numpy()
-        points = points.reshape(-1, 3)[mask.reshape(-1)]
-        
-        # Height filtering
-        points = points[points[:, 1] < 0.5]
-        points = points[points[:, 1] > -0.5]
-        
-        # Get poses
-        camera_poses = SE3(poses).inv().data.cpu().numpy()
-        
-        # Scale points to centimeters
-        return points * 1e2, camera_poses
+    def __getattr__(self, name):
+        """Forward all other attributes to the underlying DROID instance"""
+        try:
+            return super().__getattr__(name)
+        except AttributeError:
+            return getattr(self.droid, name)
 
 
 # ============================================================
