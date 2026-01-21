@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 TensorRT Inference Wrapper for DROID-SLAM Networks
 Supports FP16 precision with execute_async_v3 API
@@ -25,9 +26,9 @@ class TRTDroidNetwork:
         self.output_shape = output_shape
         self.use_fp16 = use_fp16
         
-        # Compute sizes
-        self.input_size = np.prod(input_shape)
-        self.output_size = np.prod(output_shape)
+        # Compute sizes - convert to Python int to avoid numpy.int64
+        self.input_size = int(np.prod(input_shape))
+        self.output_size = int(np.prod(output_shape))
         
         # Determine dtype
         self.dtype = np.float16 if use_fp16 else np.float32
@@ -67,9 +68,12 @@ class TRTDroidNetwork:
     
     def _allocate_buffers(self):
         """Allocate GPU buffers for input/output"""
-        # Allocate device memory
-        self.d_input = cuda.mem_alloc(self.input_size * self.dtype_size)
-        self.d_output = cuda.mem_alloc(self.output_size * self.dtype_size)
+        # Allocate device memory - ensure int type for PyCUDA
+        input_bytes = int(self.input_size * self.dtype_size)
+        output_bytes = int(self.output_size * self.dtype_size)
+        
+        self.d_input = cuda.mem_alloc(input_bytes)
+        self.d_output = cuda.mem_alloc(output_bytes)
         
         # Create CUDA stream
         self.stream = cuda.Stream()
