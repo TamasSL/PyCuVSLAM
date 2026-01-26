@@ -95,7 +95,10 @@ def main() -> None:
 
     frame_id = 0
     prev_timestamp: Optional[int] = None
-    trajectory: List[np.ndarray] = []
+
+    slam_publisher = Publisher(maxsize=5)
+    streamer_subscriber = StreamerSubscriber(slam_publisher, command_publisher, "StreamerSubscriber")
+    streamer_subscriber.start()
 
     print("pre init")
     droid_slam = DroidSLAM()
@@ -142,27 +145,23 @@ def main() -> None:
 
                 print("droid update")
                 # call droid slam here
-                _, poses = droid_slam.update(obs)
+                points, poses = droid_slam.update(obs)
                 current_pose = poses[-1]
                 translation = [current_pose[0], current_pose[1], current_pose[2]]
                 quaternion = [current_pose[3], current_pose[4], current_pose[5], current_pose[6]]
-                trajectory.append(translation)
 
                 # Store current timestamp for next iteration
                 prev_timestamp = timestamp
 
-                # Visualize results for color and depth cameras
-                # Same observations for both, since we only have one image
-                visualizer.visualize_frame(
-                    frame_id=frame_id,
-                    images=images,
-                    # pose=odom_pose,
-                    translation=translation,
-                    quaternion=quaternion,
-                    observations_main_cam=[[], []],
-                    trajectory=trajectory,
-                    timestamp=timestamp
-                )
+                publish_data = dict(
+                        depth = images[1] * np.float32(depth_scale),
+                        rgb = images[0],
+                        position=translation,
+                        quaternion=quaternion,
+                        points=points
+                    )
+                # slam_publisher.publish(publish_data)
+                streamer_subscriber.stream_callback(publish_data)
 
     finally:
         pipeline.stop()
