@@ -135,6 +135,7 @@ class RerunVisualizer:
         self,
         frame_id: int,
         images: List[np.ndarray],
+        points,
         #pose,
         translation,
         quaternion,
@@ -156,6 +157,7 @@ class RerunVisualizer:
         """
         rr.set_time_sequence("frame", frame_id)
         rr.log("world/trajectory", rr.LineStrips3D(trajectory), static=True)
+        self._visualize_points(points)
 
         self._log_rig_pose(quaternion, translation)
         
@@ -168,3 +170,8 @@ class RerunVisualizer:
             self._log_gravity(gravity)
             
         rr.log("world/timestamp", rr.TextLog(str(timestamp)))
+
+    def _visualize_points(self, points):
+        rr.log('world/points', rr.Points3D(
+            points, radii=0.01, colors=[255, 255, 255]
+        ))
