@@ -18,11 +18,13 @@ else:
 
 class FactorGraph:
     # maximum number of inactive factors to retain (prevents O(N²) memory growth)
-    MAX_INACTIVE_FACTORS = 10000
+    # reduced from 10000 to 2000 for better performance
+    MAX_INACTIVE_FACTORS = 2000
     # maximum number of bad edges to track
-    MAX_BAD_EDGES = 5000
+    MAX_BAD_EDGES = 1000
     # sliding window size for distance computation (prevents O(N²) distance matrix)
-    PROXIMITY_WINDOW = 100
+    # reduced from 100 to 50 for better performance
+    PROXIMITY_WINDOW = 50
 
     def __init__(self, video, update_op, device="cuda", corr_impl="volume", max_factors=-1, upsample=False):
         self.video = video
@@ -60,6 +62,14 @@ class FactorGraph:
         self._active_edges = set()
         self._inactive_edges = set()
 
+        # cache for inactive factor concatenation in update() - invalidated when inactive factors change
+        self._inac_cache_valid = False
+        self._inac_cache_t0 = -1
+        self._cached_ii_inac_filtered = None
+        self._cached_jj_inac_filtered = None
+        self._cached_target_inac_filtered = None
+        self._cached_weight_inac_filtered = None
+
     def __filter_repeated_edges(self, ii, jj):
         """remove duplicate edges - O(N) set-based deduplication"""
         if len(ii) == 0:
@@ -89,16 +99,32 @@ class FactorGraph:
         keep_mask = torch.tensor(keep_indices, device=ii.device, dtype=torch.long)
         return ii[keep_mask], jj[keep_mask]
 
+    def _invalidate_inac_cache(self):
+        """invalidate the inactive factor cache when inactive factors change"""
+        self._inac_cache_valid = False
+        self._cached_ii_inac_filtered = None
+        self._cached_jj_inac_filtered = None
+        self._cached_target_inac_filtered = None
+        self._cached_weight_inac_filtered = None
+
     def _update_edge_sets(self):
         """rebuild edge sets from current tensors (call after rm_factors/rm_keyframe)"""
+        # only rebuild active edges (small, bounded by max_factors)
         if len(self.ii) > 0:
             self._active_edges = set(zip(self.ii.tolist(), self.jj.tolist()))
         else:
             self._active_edges = set()
-        if len(self.ii_inac) > 0:
+
+        # for inactive edges, only rebuild if size is small enough
+        # otherwise, accept slightly stale data for deduplication (safe - just may re-add some edges)
+        if len(self.ii_inac) > 0 and len(self.ii_inac) <= 500:
             self._inactive_edges = set(zip(self.ii_inac.tolist(), self.jj_inac.tolist()))
-        else:
+        elif len(self.ii_inac) == 0:
             self._inactive_edges = set()
+        # else: keep existing _inactive_edges (may be stale but safe)
+
+        # invalidate inactive factor cache
+        self._invalidate_inac_cache()
 
     def _prune_inactive_factors(self):
         """prune oldest inactive factors to prevent unbounded growth"""
@@ -116,8 +142,11 @@ class FactorGraph:
         self.target_inac = self.target_inac[:, keep_order]
         self.weight_inac = self.weight_inac[:, keep_order]
 
-        # update the inactive edge set
+        # update the inactive edge set (small enough after pruning)
         self._inactive_edges = set(zip(self.ii_inac.tolist(), self.jj_inac.tolist()))
+
+        # invalidate cache
+        self._invalidate_inac_cache()
 
     def _prune_bad_edges(self):
         """prune oldest bad edges to prevent unbounded growth"""
@@ -269,6 +298,9 @@ class FactorGraph:
         self.video.fmaps[ix : t - 1] = self.video.fmaps[ix + 1 : t].clone()
         self.video.tstamp[ix: t - 1] = self.video.tstamp[ix + 1 : t].clone()
 
+        # invalidate cache since we're modifying inactive factors
+        self._invalidate_inac_cache()
+
         m = (self.ii_inac == ix) | (self.jj_inac == ix)
         self.ii_inac[self.ii_inac >= ix] -= 1
         self.jj_inac[self.jj_inac >= ix] -= 1
@@ -313,13 +345,35 @@ class FactorGraph:
             ht, wd = self.coords0.shape[0:2]
             self.damping[torch.unique(self.ii)] = damping
 
-            if use_inactive:
-                m = (self.ii_inac >= t0 - 3) & (self.jj_inac >= t0 - 3)
-                ii = torch.cat([self.ii_inac[m], self.ii], 0)
-                jj = torch.cat([self.jj_inac[m], self.jj], 0)
-                target = torch.cat([self.target_inac[:,m], self.target], 1)
-                weight = torch.cat([self.weight_inac[:,m], self.weight], 1)
+            if use_inactive and len(self.ii_inac) > 0:
+                # use cached filtered inactive factors if available and t0 matches
+                if self._inac_cache_valid and self._inac_cache_t0 == t0:
+                    ii_inac_f = self._cached_ii_inac_filtered
+                    jj_inac_f = self._cached_jj_inac_filtered
+                    target_inac_f = self._cached_target_inac_filtered
+                    weight_inac_f = self._cached_weight_inac_filtered
+                else:
+                    # compute and cache filtered inactive factors
+                    m = (self.ii_inac >= t0 - 3) & (self.jj_inac >= t0 - 3)
+                    ii_inac_f = self.ii_inac[m]
+                    jj_inac_f = self.jj_inac[m]
+                    target_inac_f = self.target_inac[:, m]
+                    weight_inac_f = self.weight_inac[:, m]
+                    # cache for subsequent calls with same t0
+                    self._inac_cache_valid = True
+                    self._inac_cache_t0 = t0
+                    self._cached_ii_inac_filtered = ii_inac_f
+                    self._cached_jj_inac_filtered = jj_inac_f
+                    self._cached_target_inac_filtered = target_inac_f
+                    self._cached_weight_inac_filtered = weight_inac_f
 
+                if len(ii_inac_f) > 0:
+                    ii = torch.cat([ii_inac_f, self.ii], 0)
+                    jj = torch.cat([jj_inac_f, self.jj], 0)
+                    target = torch.cat([target_inac_f, self.target], 1)
+                    weight = torch.cat([weight_inac_f, self.weight], 1)
+                else:
+                    ii, jj, target, weight = self.ii, self.jj, self.target, self.weight
             else:
                 ii, jj, target, weight = self.ii, self.jj, self.target, self.weight
 
@@ -390,12 +444,18 @@ class FactorGraph:
 
                 damping = .2 * self.damping[torch.unique(self.ii)].contiguous() + EP
 
-                if use_inactive:
-                    ii = torch.cat([self.ii_inac, self.ii], 0)
-                    jj = torch.cat([self.jj_inac, self.jj], 0)
-                    target = torch.cat([self.target_inac, self.target], 1)
-                    weight = torch.cat([self.weight_inac, self.weight], 1)
-
+                if use_inactive and len(self.ii_inac) > 0:
+                    # limit inactive factors to most recent ones for performance
+                    # filter to recent frames only (within PROXIMITY_WINDOW of current)
+                    min_frame = max(0, t - self.PROXIMITY_WINDOW)
+                    m = (self.ii_inac >= min_frame) | (self.jj_inac >= min_frame)
+                    if m.any():
+                        ii = torch.cat([self.ii_inac[m], self.ii], 0)
+                        jj = torch.cat([self.jj_inac[m], self.jj], 0)
+                        target = torch.cat([self.target_inac[:, m], self.target], 1)
+                        weight = torch.cat([self.weight_inac[:, m], self.weight], 1)
+                    else:
+                        ii, jj, target, weight = self.ii, self.jj, self.target, self.weight
                 else:
                     ii, jj, target, weight = self.ii, self.jj, self.target, self.weight
 
