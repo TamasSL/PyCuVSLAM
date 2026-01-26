@@ -145,6 +145,7 @@ async def main() -> None:
 
                 # call droid slam here
                 points, poses = droid_slam.update(obs)
+                all_points.extend(points / 100)
                 current_pose = poses[-1]
                 translation = [current_pose[0], current_pose[1], current_pose[2]]
                 quaternion = [current_pose[3], current_pose[4], current_pose[5], current_pose[6]]
