@@ -10,12 +10,14 @@
 #
 from typing import List, Optional
 
+import asyncio
 import numpy as np
 import pyrealsense2 as rs
 
 from droid_slam_module import DroidSLAM
 from sensor import Sensor
-from rerun_visualizer import RerunVisualizer
+from streamer_subscriber import StreamerSubscriber
+from publish_subscribe import Publisher
 
 # Constants
 RESOLUTION = (640, 480)
@@ -36,7 +38,7 @@ def reset_realsense_device():
     import time
     time.sleep(3)
 
-def main() -> None:
+async def main() -> None:
     reset_realsense_device()
 
     """Main function for RGBD tracking."""
@@ -86,8 +88,6 @@ def main() -> None:
     if depth_sensor.supports(rs.option.emitter_enabled):
         depth_sensor.set_option(rs.option.emitter_enabled, 1)
 
-    visualizer = RerunVisualizer(num_viz_cameras=NUM_VIZ_CAMERAS)
-
     reset_realsense_device()
 
     # Start pipeline for tracking
@@ -97,7 +97,7 @@ def main() -> None:
     prev_timestamp: Optional[int] = None
 
     slam_publisher = Publisher(maxsize=5)
-    streamer_subscriber = StreamerSubscriber(slam_publisher, command_publisher, "StreamerSubscriber")
+    streamer_subscriber = StreamerSubscriber(slam_publisher, None, "StreamerSubscriber")
     streamer_subscriber.start()
 
     print("pre init")
@@ -143,7 +143,6 @@ def main() -> None:
                     Sensor.STEREO: images[1]
                 }
 
-                print("droid update")
                 # call droid slam here
                 points, poses = droid_slam.update(obs)
                 current_pose = poses[-1]
@@ -160,12 +159,13 @@ def main() -> None:
                         quaternion=quaternion,
                         points=points
                     )
-                # slam_publisher.publish(publish_data)
-                streamer_subscriber.stream_callback(publish_data)
+                slam_publisher.publish(publish_data)
+                await asyncio.sleep(0)
+                # streamer_subscriber.stream_callback(publish_data)
 
     finally:
         pipeline.stop()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
