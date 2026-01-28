@@ -15,6 +15,7 @@ import numpy as np
 import pyrealsense2 as rs
 
 from droid_slam_module import DroidSLAM
+from dpvo_slam_module import DpvoSLAM
 from sensor import Sensor
 from streamer_subscriber import StreamerSubscriber
 from publish_subscribe import Publisher
@@ -100,9 +101,7 @@ async def main() -> None:
     streamer_subscriber = StreamerSubscriber(slam_publisher, None, "StreamerSubscriber")
     streamer_subscriber.start()
 
-    print("pre init")
-    droid_slam = DroidSLAM()
-    print("post init")
+    droid_slam = DpvoSLAM() # DroidSLAM()
     try:
         while True:
             # Wait for frames
@@ -148,7 +147,8 @@ async def main() -> None:
                 all_points.extend(points / 100)
                 current_pose = poses[-1]
                 translation = [current_pose[0], current_pose[1], current_pose[2]]
-                quaternion = [current_pose[3], current_pose[4], current_pose[5], current_pose[6]]
+                quaternion = [current_pose[6], current_pose[3], current_pose[4], current_pose[5]]
+                #[current_pose[3], current_pose[4], current_pose[5], current_pose[6]]
 
                 # Store current timestamp for next iteration
                 prev_timestamp = timestamp
