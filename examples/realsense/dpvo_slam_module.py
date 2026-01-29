@@ -5,19 +5,20 @@ from argparse import Namespace
 import cv2
 import numpy as np
 import torch
+import lietorch
 from lietorch import SE3
 from thirdparty.dpvo.dpvo.config import cfg
+from thirdparty.dpvo.dpvo.dpvo import DPVO
 
 from sensor import SensorData, Sensor
 from pointcloud_slam import PointCloudSLAM, CameraInfo
-from base_settings import droid_slam_settings as settings, env_settings
 
 
 class DpvoSLAM(PointCloudSLAM):
     _name = "DPVO"
 
     def __init__(self):
-        cfg.merge_from_file('config/default.yaml')
+        cfg.merge_from_file('thirdparty/dpvo/config/default.yaml')
         self.image_size = (240, 320)
         self.slam = DPVO(cfg, 'dpvo.pth', ht=240, wd=320, viz=False)
         self.intrinsics = self._compute_intrinsics(
@@ -34,13 +35,16 @@ class DpvoSLAM(PointCloudSLAM):
         return torch.as_tensor([fx, fy, cx, cy])
 
     def _preprocess_img(self, image: np.ndarray):
-        if image.shape[0] == 3:
-            image = image.transpose((1, 2, 0))
+
         image_size = (320, 240)
         image = cv2.resize(image, image_size)
-        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-        image = torch.as_tensor(image).permute(2, 0, 1)
-        return image[None]
+
+        h, w, _ = image.shape
+        image = image[:h-h%16, :w-w%16]
+    
+        
+        image = torch.from_numpy(image).permute(2,0,1).cuda()
+        return image
 
     @torch.no_grad()
     def _step_slam(self, obs: SensorData):
@@ -52,15 +56,18 @@ class DpvoSLAM(PointCloudSLAM):
 
     @torch.no_grad()
     def _extract_points_and_poses(self):
-        pose = self.slam.get_pose(self.tstamp - 1)
-        points = self.slam.pg.points_.cpu().numpy()[:slam.m]
-        return points * 1e2, pose
+        poses = [self.slam.get_pose(t) for t in range(self.slam.counter)]
+        poses = lietorch.stack(poses, dim=0)
+        poses = poses.inv().data.cpu().numpy()
+
+        points = self.slam.pg.points_.cpu().numpy()[:self.slam.m]
+        return points, poses
 
     def update(self, obs: SensorData):
         self._step_slam(obs)
 
         points, poses = self._extract_points_and_poses()
-        self.xyz = self._voxelize_points(points)[0]
+        self.xyz = points # self._voxelize_points(points)[0]
         self.poses = poses
 
         return self.xyz, self.poses

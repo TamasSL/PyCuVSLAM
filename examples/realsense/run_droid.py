@@ -40,6 +40,8 @@ def reset_realsense_device():
     time.sleep(3)
 
 async def main() -> None:
+    droid_slam = DpvoSLAM() # DroidSLAM()
+    
     reset_realsense_device()
 
     """Main function for RGBD tracking."""
@@ -101,7 +103,6 @@ async def main() -> None:
     streamer_subscriber = StreamerSubscriber(slam_publisher, None, "StreamerSubscriber")
     streamer_subscriber.start()
 
-    droid_slam = DpvoSLAM() # DroidSLAM()
     try:
         while True:
             # Wait for frames
@@ -144,7 +145,7 @@ async def main() -> None:
 
                 # call droid slam here
                 points, poses = droid_slam.update(obs)
-                all_points.extend(points / 100)
+                # all_points.extend(points / 100)
                 current_pose = poses[-1]
                 translation = [current_pose[0], current_pose[1], current_pose[2]]
                 quaternion = [current_pose[6], current_pose[3], current_pose[4], current_pose[5]]
