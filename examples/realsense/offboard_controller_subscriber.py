@@ -6,6 +6,8 @@ import time
 from typing import Optional
 
 from mavsdk.offboard import VelocityBodyYawspeed, OffboardError, PositionNedYaw
+from mavsdk.mocap import VisionPositionEstimate, Quaternion, PositionBody, AngleBody, Covariance, SpeedBody, AngularVelocityBody, Odometry
+
 
 # Import generated protobuf code
 # Run: python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. sensor_stream.proto
@@ -39,6 +41,13 @@ class OffboardControllerSubscriber:
 
         self.follow_target_position = False
         self._heartbeat_task = None
+
+        self.x_est = 0
+        self.y_est = 0
+        self.z_est = 0
+        self.yaw_est = 0
+        self.roll_est = 0
+        self.pitch_est = 0
     
     def start(self):
         """Start processing in background thread"""
@@ -59,6 +68,9 @@ class OffboardControllerSubscriber:
     
     async def _process_loop(self):
         """Main processing loop"""
+
+        asyncio.create_task(self._pos_update_heartbeat_loop())
+
         while self._running:
             
             try:
@@ -106,6 +118,46 @@ class OffboardControllerSubscriber:
         except Exception as e:
            print(f"❌ Failed to execute command: {e}")
 
+    def update_estimated_position(self, x, y, z, yaw):
+        self.x_est = x
+        self.y_est = y
+        self.z_est = z
+        self.yaw_est = yaw
+
+    async def _send_vision_position(self):
+        """Send vision position estimate to PX4"""
+        p = PositionBody(self.x_est, self.y_est, self.z_est)
+        s = SpeedBody(0.0, 0.0, 0.0)
+        av = AngularVelocityBody(0.0, 0.0, 0.0)
+        a = AngleBody(self.roll_est, self.pitch_est, self.yaw_est)
+
+        pose_covariance = Covariance([
+            0.01, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.01, 0.0, 0.0, 0.0, 0.0,
+            0.01, 0.0, 0.0, 0.0,
+            0.001, 0.0, 0.0,
+            0.001, 0.0,
+            0.001
+        ])
+
+        vision_position = VisionPositionEstimate(
+            time_usec=int(time.time() * 1e6),
+            position_body=p,
+            angle_body=a,
+            pose_covariance=pose_covariance,
+        )
+        await self.drone.mocap.set_vision_position_estimate(vision_position)
+
+    async def _pos_update_heartbeat_loop(self):
+        """Continuously send position updates to EKF2"""
+        try:
+            while True:
+                print(f'sending position {self.x_est, self.y_est, self.z_est}')
+                await self._send_vision_position()
+                await asyncio.sleep(0.05)  # 20 Hz
+        except asyncio.CancelledError:
+            print("Position update loop cancelled")
+
     async def _arm(self):
         print("Arming...")
         await self.drone.action.arm()
@@ -146,7 +198,7 @@ class OffboardControllerSubscriber:
             # move back 0.5m, turn another 180 degrees
             # this should allow discovering the area around the drone
             # without leaving a black hole at the drone's starting position
-            
+            """
             for i in range(5):
                 self.target_north += 0.1
                 await asyncio.sleep(1)
@@ -162,7 +214,7 @@ class OffboardControllerSubscriber:
             for i in range(18):
                 self.target_yaw += 10
                 await asyncio.sleep(0.5)
-            
+            """
             
 
             print("✅ Offboard mode active")

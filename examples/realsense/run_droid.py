@@ -13,6 +13,7 @@ from typing import List, Optional
 import asyncio
 import numpy as np
 import pyrealsense2 as rs
+import time
 
 from mavsdk import System
 from mavsdk.mocap import VisionPositionEstimate, Quaternion, PositionBody, AngleBody, Covariance, SpeedBody, AngularVelocityBody, Odometry
@@ -30,6 +31,8 @@ WARMUP_FRAMES = 60
 IMAGE_JITTER_THRESHOLD_MS = 35 * 1e6  # 35ms in nanoseconds
 NUM_VIZ_CAMERAS = 2
 
+DRONE_ADDRESS = "serial:///dev/ttyTHS1:921600"  # JETSON
+
 def reset_realsense_device():
     """Reset all RealSense devices"""
     ctx = rs.context()
@@ -43,30 +46,6 @@ def reset_realsense_device():
     time.sleep(3)
 
 
-async def send_vision_position(drone, x, y, z, yaw, roll, pitch):
-    """Send vision position estimate to PX4"""
-    p = PositionBody(x, y, z)
-    s = SpeedBody(0.0, 0.0, 0.0)
-    av = AngularVelocityBody(0.0, 0.0, 0.0)
-    a = AngleBody(roll, pitch, yaw)
-
-    pose_covariance = Covariance([
-        0.01, 0.0, 0.0, 0.0, 0.0, 0.0,
-        0.01, 0.0, 0.0, 0.0, 0.0,
-        0.01, 0.0, 0.0, 0.0,
-        0.001, 0.0, 0.0,
-        0.001, 0.0,
-        0.001
-    ])
-
-    vision_position = VisionPositionEstimate(
-        time_usec=int(time.time() * 1e6),
-        position_body=p,
-        angle_body=a,
-        pose_covariance=pose_covariance,
-    )
-    await drone.mocap.set_vision_position_estimate(vision_position)
-
 def transform_to_ned(x, y, z):
     """Transform camera frame pose to PX4 NED frame pose"""
     ned_x = z
@@ -74,6 +53,47 @@ def transform_to_ned(x, y, z):
     ned_z = y
     
     return ned_x, ned_y, ned_z
+
+def quaternion_to_euler(qx, qy, qz, qw):
+        """
+        Extract yaw (rotation about vertical/y-axis) from quaternion.
+        For camera frame where y is up.
+        """
+        import numpy as np
+
+        bqw = qw
+        bqx = qz
+        bqy = qx
+        bqz = -qy
+        
+        # Yaw is rotation about the y-axis (vertical in camera frame)
+        # Standard yaw extraction from quaternion:
+        siny_cosp = 2 * (bqw * bqz + bqx * bqy)
+        cosy_cosp = 1 - 2 * (bqy * bqy + bqz * bqz)
+        yaw = -np.arctan2(siny_cosp, cosy_cosp)
+
+        roll = np.arctan2(2 * (bqw * bqx + bqy * bqz), 1 - 2 * (bqx**2 + bqy**2))
+
+        sinp = 2 * (bqw * bqy - bqz * bqx)
+        pitch = float(np.where(np.abs(sinp) >= 1, np.copysign(np.pi / 2, sinp), np.arcsin(sinp)))
+        
+        return yaw, roll, pitch
+
+
+async def print_ned_coordinates(drone):
+    async for position_ned in drone.telemetry.position_velocity_ned():
+        x = position_ned.position.north_m
+        y = position_ned.position.east_m
+        z = position_ned.position.down_m
+        print(f"Position NED: x={x:.2f}, y={y:.2f}, z={z:.2f}")
+        break
+
+    async for attitude in drone.telemetry.attitude_euler():
+        r = attitude.roll_deg
+        p = attitude.pitch_deg
+        y = attitude.yaw_deg
+        # print(f"Attitude: roll={r:.1f}, pitch={p:.1f}, yaw={y:.1f}")
+        break
 
 async def main() -> None:
     reset_realsense_device()
@@ -202,7 +222,9 @@ async def main() -> None:
 
                 x_ned, y_ned, z_ned = transform_to_ned(translation[0], translation[1], translation[2])
                 yaw, roll, pitch = quaternion_to_euler(quaternion[3], quaternion[0], quaternion[1], quaternion[2])
-                await send_vision_position(drone, x_ned, y_ned, z_ned, yaw, roll, pitch)
+                offboard_controller.update_estimated_position(x_ned, y_ned, z_ned, yaw)
+
+                await print_ned_coordinates(drone)
 
                 # Store current timestamp for next iteration
                 prev_timestamp = timestamp
