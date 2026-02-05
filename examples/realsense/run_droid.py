@@ -196,7 +196,6 @@ async def main() -> None:
 
                 # call droid slam here
                 points, poses = droid_slam.update(obs)
-                all_points.extend(points / 100)
                 current_pose = poses[-1]
                 translation = [current_pose[0], current_pose[1], current_pose[2]]
                 quaternion = [current_pose[3], current_pose[4], current_pose[5], current_pose[6]]
@@ -213,7 +212,7 @@ async def main() -> None:
                         rgb = images[0],
                         position=translation,
                         quaternion=quaternion,
-                        points=points
+                        points=points / 100
                     )
                 slam_publisher.publish(publish_data)
                 await asyncio.sleep(0)
