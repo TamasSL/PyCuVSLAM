@@ -15,10 +15,13 @@ import numpy as np
 import pyrealsense2 as rs
 import time
 
+import torch
 from mavsdk import System
 from mavsdk.mocap import VisionPositionEstimate, Quaternion, PositionBody, AngleBody, Covariance, SpeedBody, AngularVelocityBody, Odometry
 
+from fmm_planner_2d import FMMPlanner
 from droid_slam_module import DroidSLAM
+from droid_map_builder import DroidMapBuilder
 from sensor import Sensor
 from streamer_subscriber import StreamerSubscriber
 from publish_subscribe import Publisher
@@ -31,7 +34,8 @@ WARMUP_FRAMES = 60
 IMAGE_JITTER_THRESHOLD_MS = 35 * 1e6  # 35ms in nanoseconds
 NUM_VIZ_CAMERAS = 2
 
-DRONE_ADDRESS = "serial:///dev/ttyTHS1:921600"  # JETSON
+# DRONE_ADDRESS = "serial:///dev/ttyTHS1:921600"  # JETSON
+DRONE_ADDRESS = "serial:///dev/ttyACM0:57600"
 
 def reset_realsense_device():
     """Reset all RealSense devices"""
@@ -158,11 +162,13 @@ async def main() -> None:
     offboard_controller = OffboardControllerSubscriber(command_publisher, drone, event_loop)
     offboard_controller.start()
 
+    """
     print("Waiting for drone to connect...")
     async for state in drone.core.connection_state():
         if state.is_connected:
             print("✅ Drone connected!")
             break
+    """
 
     frame_id = 0
     prev_timestamp: Optional[int] = None
@@ -171,9 +177,12 @@ async def main() -> None:
     streamer_subscriber = StreamerSubscriber(slam_publisher, command_publisher, "StreamerSubscriber")
     streamer_subscriber.start()
 
-    print("pre init")
-    droid_slam = DroidSLAM()
-    print("post init")
+    calib = np.loadtxt("thirdparty/dpvo/calib/d435i.txt", delimiter=" ")
+    fx, fy, cx, cy = calib[:4]
+    intrinsics = torch.as_tensor([fx, fy, cx, cy])
+    droid_slam = DroidSLAM(intrinsics)
+    map_builder = DroidMapBuilder()
+
     try:
         while True:
             # Wait for frames
@@ -211,11 +220,11 @@ async def main() -> None:
 
                 obs = {
                     Sensor.RGB: images[0],
-                    Sensor.STEREO: images[1]
+                    Sensor.STEREO: images[1] / 1000
                 }
 
                 # call droid slam here
-                points, poses = droid_slam.update(obs)
+                points, poses = await asyncio.get_event_loop().run_in_executor(None, droid_slam.update, obs)
                 current_pose = poses[-1]
                 translation = [current_pose[0], current_pose[1], current_pose[2]]
                 quaternion = [current_pose[3], current_pose[4], current_pose[5], current_pose[6]]
@@ -224,17 +233,41 @@ async def main() -> None:
                 yaw, roll, pitch = quaternion_to_euler(quaternion[3], quaternion[0], quaternion[1], quaternion[2])
                 offboard_controller.update_estimated_position(x_ned, y_ned, z_ned, yaw)
 
-                await print_ned_coordinates(drone)
+                # await print_ned_coordinates(drone)
+
+                drone_x_2d = translation[2] * 10 + 80
+                drone_y_2d = -translation[0] * 10 + 80
+                obstacle_map, explored_area = map_builder.update_map(points, [translation[2] * 100, -translation[0] * 100, -yaw + np.pi])
+                points_to_stream = points / 100
+
+                traversible = 1 - obstacle_map
+                planner = FMMPlanner(traversible, 360 / 45)
+                ltg = [85, 80]
+                reachable = planner.set_goal((ltg[1], ltg[0]))
+                stg_x, stg_y, _ = planner.get_short_term_goal([drone_x_2d, drone_y_2d])
+
+                H, W = obstacle_map.shape
+                points_2d = []
+                for i in range(0,H):
+                    for j in range (0,W):
+                        if obstacle_map[i][j] == 1:
+                            points_2d.append([i, j, -1000])
+                        elif explored_area[i][j] >= 1:
+                            points_2d.append([i, j, -1001])
+                points_2d.append([ltg[0], ltg[1], -2000])
+                points_2d.append([stg_x, stg_y, -2001])
+
+                points_to_stream = np.concatenate((points_to_stream, np.array(points_2d)))
 
                 # Store current timestamp for next iteration
                 prev_timestamp = timestamp
 
                 publish_data = dict(
-                        depth = images[1] * np.float32(depth_scale),
+                        depth = images[1].astype(np.float32), # * np.float32(depth_scale),
                         rgb = images[0],
                         position=translation,
                         quaternion=quaternion,
-                        points=points / 100
+                        points=points_to_stream
                     )
                 slam_publisher.publish(publish_data)
                 await asyncio.sleep(0)

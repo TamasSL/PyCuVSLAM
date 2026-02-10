@@ -29,7 +29,7 @@ class PointCloudSLAM(ABC):
     def _voxelize_points(
         cls,
         points: np.ndarray,
-        voxel_size: float = 5,
+        voxel_size: float = 10,
     ):
         if points.ndim != 2 or points.shape[1] != 3:
             raise ValueError("points must be (N, 3)")
