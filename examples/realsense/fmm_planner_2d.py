@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import skfmm
 from numpy import ma
+from scipy.ndimage import gaussian_filter
 
 
 def get_mask(sx: float, sy: float) -> np.ndarray:
@@ -90,6 +91,22 @@ class FMMPlanner:
         self.viz_dict = {}
 
         # Precompute velocity map for FM² (version 2)
+        if self.version == "fm2":
+            self._compute_velocity_map()
+
+    def update_traversible(self, traversible: np.ndarray) -> None:
+        """Update the traversibility map without full reinitialization.
+
+        This allows reusing the planner across frames when the map changes.
+        For FM2, we recompute the velocity map since obstacles may have changed.
+
+        Args:
+            traversible: Binary traversability map (1=traversible, 0=obstacle)
+        """
+        self.traversible = traversible
+        self.fmm_dist = None
+
+        # Recompute velocity map for FM²
         if self.version == "fm2":
             self._compute_velocity_map()
 
@@ -321,7 +338,6 @@ class FMMPlanner:
         # For FM2, apply light smoothing to reduce noise from velocity field
         fmm_for_planning = self.fmm_dist
         if self.version == "fm2":
-            from scipy.ndimage import gaussian_filter
             fmm_for_planning = gaussian_filter(self.fmm_dist, sigma=1.0)
 
         padded_fmm = np.pad(
