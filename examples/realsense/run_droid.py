@@ -21,6 +21,10 @@ import torch
 from mavsdk import System
 from mavsdk.mocap import VisionPositionEstimate, Quaternion, PositionBody, AngleBody, Covariance, SpeedBody, AngularVelocityBody, Odometry
 
+# cuvslam
+import cuvslam as vslam
+from camera_utils import get_rs_stereo_rig
+
 from fmm_planner_2d import FMMPlanner
 from droid_slam_module import DroidSLAM
 from droid_map_builder import DroidMapBuilder
@@ -206,6 +210,26 @@ async def main() -> None:
 
     reset_realsense_device()
 
+    # Configure RGBD settings
+    rgbd_settings = vslam.Tracker.OdometryRGBDSettings()
+    rgbd_settings.depth_scale_factor = 1 / depth_scale
+    rgbd_settings.depth_camera_id = 0
+    rgbd_settings.enable_depth_stereo_tracking = False
+
+    # Configure tracker
+    cfg = vslam.Tracker.OdometryConfig(
+        async_sba=False,
+        enable_final_landmarks_export=True,
+        odometry_mode=vslam.Tracker.OdometryMode.RGBD,
+        rgbd_settings=rgbd_settings
+    )
+
+    # Create rig using utility function
+    rig = get_rs_stereo_rig(camera_params)
+
+    # Initialize tracker and visualizer
+    tracker = vslam.Tracker(rig, cfg)
+
     # Start pipeline for tracking
     profile = pipeline.start(config)
 
@@ -290,11 +314,27 @@ async def main() -> None:
                     Sensor.STEREO: images[1] / 1000
                 }
 
+                ## CUVSLAM
+                odom_pose_estimate, _ = tracker.track(
+                    timestamp, images=[images[0]], depths=[images[1]]
+                )
+                if odom_pose_estimate is None:
+                    continue
+
+                odom_pose = odom_pose_estimate.world_from_rig.pose
+                orientation=Quaternion(
+                    odom_pose.rotation[3],
+                    odom_pose.rotation[0],
+                    odom_pose.rotation[1],
+                    odom_pose.rotation[2]
+                )
+
                 # Call DROID SLAM
-                points, poses = await asyncio.get_event_loop().run_in_executor(None, droid_slam.update, obs)
-                current_pose = poses[-1]
-                translation = [current_pose[0], current_pose[1], current_pose[2]]
-                quaternion = [current_pose[3], current_pose[4], current_pose[5], current_pose[6]]
+                # points, poses = await asyncio.get_event_loop().run_in_executor(None, droid_slam.update, obs)
+                # current_pose = poses[-1]
+                points = []
+                translation = odom_pose.translation # [current_pose[0], current_pose[1], current_pose[2]]
+                quaternion = odom_pose.rotation # [current_pose[3], current_pose[4], current_pose[5], current_pose[6]]
 
                 x_ned, y_ned, z_ned = transform_to_ned(translation[0], translation[1], translation[2])
                 yaw, roll, pitch = quaternion_to_euler(quaternion[3], quaternion[0], quaternion[1], quaternion[2])
